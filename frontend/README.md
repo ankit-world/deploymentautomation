@@ -1,9 +1,11 @@
 # frontend
 
-Next.js 16 (App Router), TypeScript, Tailwind CSS. Session 03 scope — see
-`docs/sessions/03-frontend-core.md`: auth pages (login/signup), a route gate, a sidebar of
-conversations, and a chat pane that posts messages and renders the assistant's reply once it's
-fully streamed (no token-by-token typing effect yet — that's session 04).
+Next.js 16 (App Router), TypeScript, Tailwind CSS. Session 03 (`docs/sessions/03-frontend-core.md`)
+built auth pages (login/signup), a route gate, a sidebar of conversations, and a basic chat pane.
+Session 04 (`docs/sessions/04-frontend-chat-experience.md`) upgraded the chat pane to the full
+experience: assistant replies stream in token-by-token, file attachments (image/PDF/Word/Excel)
+upload with progress and render inline previews with download, and assistant messages render as
+markdown with syntax-highlighted code blocks.
 
 Talks directly to the FastAPI backend (`../backend`) over `fetch` with `credentials: 'include'` —
 auth is entirely the backend's httpOnly JWT cookies, there's no client-side token management.
@@ -55,22 +57,27 @@ npm run lint
 - `src/lib/auth.ts`, `conversations.ts`, `messages.ts` — typed wrappers for each backend router.
   `messages.ts`'s `streamMessage()` hand-parses the backend's SSE framing (`event: ...` /
   `data: ...` blocks) via `fetch` + `ReadableStream`, not `EventSource` (which can't POST a JSON
-  body with credentials the way this needs).
+  body with credentials the way this needs); `c/[id]/page.tsx` consumes its `onToken` handler to
+  render the assistant's reply incrementally.
+- `src/lib/files.ts` (session 04) — `uploadFile()` (multipart upload via `XMLHttpRequest`, for
+  upload-progress events `fetch` doesn't have), `fetchFileBlob()`/`downloadFile()` (blob-fetch,
+  not a bare `<a href>`/`<img src>` — see `docs/ARCHITECTURE.md`'s Frontend section for why).
 - `src/contexts/AuthContext.tsx`, `ConversationsContext.tsx` — client-side auth/conversation-list
   state, shared between the sidebar and the chat pages.
 - `src/app/login`, `src/app/signup` — public auth pages.
 - `src/app/(protected)/` — everything else (route group, doesn't affect the URL): layout renders
   the sidebar and gates on `useAuth()`; `page.tsx` is the empty state at `/`; `c/[id]/page.tsx` is
-  the actual chat thread.
-- `src/components/Sidebar.tsx`, `MessageBubble.tsx` — UI pieces.
+  the actual chat thread (streaming, attachments, retry states).
+- `src/components/Sidebar.tsx`, `MessageBubble.tsx` (markdown rendering for assistant messages),
+  `Attachment.tsx` (session 04 — image thumbnail/lightbox, PDF/Word/Excel icon card, download).
 
-## API surface wired up (session 03)
+## API surface wired up
 
 - `POST /auth/signup`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`,
   `GET /auth/me`
 - `POST /conversations`, `GET /conversations`
-- `GET /conversations/{id}/messages`, `POST /conversations/{id}/messages` (SSE, buffered and
-  rendered once `event: done` arrives)
+- `GET /conversations/{id}/messages`, `POST /conversations/{id}/messages` (SSE, rendered
+  token-by-token as it streams)
+- `POST /conversations/{id}/files` (upload), `GET /conversations/{id}/files/{file_id}/download`
 
-Conversation rename/delete and file upload/download exist on the backend but aren't wired into the
-UI yet — that's session 04.
+Conversation rename/delete exist on the backend but aren't wired into the UI yet.

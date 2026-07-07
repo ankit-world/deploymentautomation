@@ -120,15 +120,37 @@ README.md
   `proxy.ts` (running as part of the Next.js server on `:3000`) can see cookies the backend set.
   This assumption should keep holding in AWS too, since the ALB routes `/` and `/api/*` on the
   *same* DNS name (see "AWS topology" below) — revisit if that ever changes.
-- Session 03 (`docs/sessions/03-frontend-core.md`) shipped the chat pane buffering the whole SSE
-  reply and rendering it only on `event: done` — no token-by-token typing effect yet. That's
-  session 04's job, along with the items below:
-  - Assistant responses stream token-by-token (reading the backend's SSE stream) for the familiar
-    ChatGPT typing effect.
-  - File attach button in the composer. Inline preview in the message bubble: images render as a
-    thumbnail (click to enlarge), PDF/Word/Excel render as an icon card with filename + size.
-    Every attachment has a download action that hits the backend's `/files/{id}/download` route.
-  - Markdown + fenced code block rendering for assistant messages.
+- Session 04 (`docs/sessions/04-frontend-chat-experience.md`) upgraded the session-03 chat pane
+  from "buffer the whole SSE reply, render on `event: done`" to the full experience, verified live
+  against the real backend/Atlas/LLM gateway:
+  - **Token-by-token streaming**: `c/[id]/page.tsx` now accumulates `event: token` deltas into a
+    transient `streamingMessage` piece of state (rendered as its own `MessageBubble`), replaced by
+    the real persisted message once `event: done` arrives. `messages.ts`'s SSE parser itself was
+    unchanged — session 03 already built it, session 04 just consumes `onToken`.
+  - **File attachments**: `frontend/src/lib/files.ts` — `uploadFile()` (multipart
+    `POST /conversations/{id}/files`) uses `XMLHttpRequest`, not `fetch`, specifically for
+    `xhr.upload.onprogress` (fetch has no upload-progress event, and a multi-MB PDF/xlsx upload
+    needs a real progress bar). The composer supports multiple queued attachments, each
+    independently retryable. `downloadFile()`/`fetchFileBlob()` fetch the file as a `Blob` (with
+    the same cookie-auth + 401-refresh-retry pattern as `apiFetch`) rather than using a bare
+    `<a href>` or `<img src>` pointed at the backend — **judgment call**: the download route sets
+    `Content-Disposition: attachment` on every response including images, and that header's effect
+    on an `<img>` subresource load vs. a top-level navigation is inconsistent across browsers,
+    so blob-fetch-then-object-URL is used uniformly for both inline thumbnails and explicit
+    downloads. Verified byte-identical (sha256) round trips for PNG/PDF/DOCX/XLSX through the real
+    upload → LLM → download path, including confirming the LLM actually received each file's
+    content (asked a question whose answer only exists inside the attached file).
+  - **Inline previews**: `frontend/src/components/Attachment.tsx` — images render as an `<img>`
+    thumbnail from the blob object URL (click to enlarge via a simple full-screen overlay, no
+    lightbox library); PDF/Word/Excel render as an icon card with filename + formatted size.
+  - **Markdown**: `react-markdown` + `remark-gfm` + `rehype-highlight` (highlight.js) +
+    `@tailwindcss/typography`'s `prose` classes, applied only to assistant messages (user messages
+    stay plain `whitespace-pre-wrap` text). Tailwind v4 has no `tailwind.config.js` by default
+    (CSS-first config) — the typography plugin is registered via `@plugin "@tailwindcss/
+    typography";` directly in `globals.css`, not a config file's `plugins` array.
+  - **Loading/error/retry**: chat send failures show an inline error banner with a Retry button
+    that resends the same content/fileIds; each upload chip in the composer has its own
+    uploading/done/error state with a per-file retry.
 
 ## AWS topology (sessions 6-10)
 
