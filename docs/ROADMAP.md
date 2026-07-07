@@ -17,7 +17,7 @@ sequentially.
 ## Sessions
 
 - [x] 00 — Foundations & scaffolding
-- [ ] 01 — Backend core (auth + conversation/message CRUD)
+- [x] 01 — Backend core (auth + conversation/message CRUD)
 - [ ] 02 — Backend LLM + files (OpenAI streaming, file upload/parse/download)
 - [ ] 03 — Frontend core (scaffold, auth pages, protected layout, basic chat)
 - [ ] 04 — Frontend chat experience (streaming, file previews/downloads, markdown)

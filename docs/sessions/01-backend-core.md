@@ -1,5 +1,10 @@
 # Session 01 — Backend Core
 
+**Status**: done. Auth + conversation/message CRUD implemented and passing 10 pytest cases
+against an in-memory Mongo mock; app boots and serves `/health`/`/docs`. Still needs a live
+smoke test against a real MongoDB Atlas cluster once `backend/.env` has a real `MONGODB_URI` —
+do that before starting session 02.
+
 ## Goal
 
 Stand up the FastAPI backend skeleton with working auth and conversation/message persistence
