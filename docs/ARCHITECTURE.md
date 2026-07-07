@@ -190,7 +190,41 @@ README.md
 
 ## Local development
 
-- `docker-compose.yml` (added session 5) runs frontend + backend + Redis locally. MongoDB is
-  Atlas directly (a cloud cluster) even in dev, using a dev-tier connection string, rather than a
-  local Mongo container — keeps dev/prod data access code identical.
-- File storage uses the local-disk driver in dev so S3 isn't required to develop the app.
+- `infra/docker/docker-compose.yml` (added session 05) runs frontend + backend + Redis locally.
+  MongoDB is Atlas directly (a cloud cluster) even in dev, using a dev-tier connection string,
+  rather than a local Mongo container — keeps dev/prod data access code identical.
+- File storage uses the local-disk driver in dev so S3 isn't required to develop the app. Under
+  Docker, the backend's `UPLOAD_DIR` is overridden to `/data/uploads`, the mount point of a named
+  volume (`chatapp_backend_uploads`), so uploaded files survive `docker compose restart`/recreate.
+  **Gotcha**: the backend container runs as a non-root user, and a brand-new Docker named volume's
+  mount point is owned by `root` unless the image already has that directory pre-created (with the
+  right ownership) at build time — `backend.Dockerfile` does this explicitly
+  (`mkdir -p /data/uploads && chown -R app:app /data/uploads` before `USER app`); skip it and the
+  first upload fails with `PermissionError`.
+- **`NEXT_PUBLIC_API_URL` is a browser-side, build-time value, not a runtime one.** The frontend
+  calls the backend directly from the browser (see "Frontend (Next.js)" above — no Next.js server
+  proxy), and Next.js inlines `NEXT_PUBLIC_*` vars into the client JS bundle during `next build`.
+  `infra/docker/frontend.Dockerfile` therefore takes it as a Docker build **ARG** (not a
+  `docker-compose.yml` runtime `environment:` entry, which would have no effect on an
+  already-built image), set to the **host-published** backend port (`http://localhost:8000`) since
+  the browser runs on the host, not inside the Docker network. `REDIS_URL` is the mirror-image
+  case: read server-side by the backend container itself, so it correctly uses the
+  Docker-internal service name (`redis://redis:6379/0`), set via `docker-compose.yml`'s
+  `environment:`. Same reasoning applies to `FRONTEND_ORIGIN` (CORS): must be
+  `http://localhost:3000`, the host-published frontend port, matching what the browser actually
+  sends as `Origin`.
+- `frontend/next.config.ts` has `output: "standalone"` (added session 05) so the Docker runtime
+  stage only needs `.next/standalone` + `.next/static` + `public`, not the full `node_modules`
+  tree — smaller/faster image. No effect on `next dev`.
+- Both Dockerfiles are multi-stage (`infra/docker/backend.Dockerfile`: Python 3.12,
+  builder-venv-then-copy; `infra/docker/frontend.Dockerfile`: Node 22, deps-builder-runtime), run
+  as non-root users, and never bake secrets into a layer — `docker-compose.yml` injects
+  `MONGODB_URI`/`MONGODB_DB_NAME`/`JWT_SECRET`/`OPENAI_API_KEY`/`OPENAI_BASE_URL` via `env_file:`
+  from a root `.env` (gitignored) at container runtime, same principle production uses with
+  Secrets Manager (session 08).
+- Both services' `build.context` in `docker-compose.yml` is the **repo root** (not each app's own
+  subdirectory) even though the Dockerfiles live under `infra/docker/` — sidesteps Docker
+  Compose's context-relative `dockerfile:` path resolution rule, which gets confusing once the
+  Dockerfile's directory, the compose file's directory, and the app's directory are all different.
+  A root `.dockerignore` (mirrors `.gitignore`) keeps the build context transfer from churning
+  through `node_modules`/`.venv`/`.git`.
