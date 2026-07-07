@@ -1,0 +1,72 @@
+# Local end-to-end orchestration (session 05). Run from the repo root:
+#   docker compose -f infra/docker/docker-compose.yml up --build
+# (see root README.md "Local development (Docker)" for the full walkthrough).
+#
+# MongoDB is NOT a service here — the app talks to the real MongoDB Atlas cluster (via
+# MONGODB_URI in the root .env) even in local dev, so dev and prod hit identical data-access
+# code (see docs/ARCHITECTURE.md "Local development"). Redis IS containerized: it's cheap to run
+# locally and, unlike Mongo, the app already has a fakeredis fallback for when no Redis is
+# configured — running the real thing here instead lets this session actually prove the
+# Redis-backed rate-limit code path end-to-end.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: chatapp-redis
+    expose:
+      - "6379" # internal only — no host port published, only `backend` talks to this
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/backend.Dockerfile
+    container_name: chatapp-backend
+    env_file:
+      - ../../.env # MONGODB_URI, MONGODB_DB_NAME, JWT_SECRET, OPENAI_API_KEY, OPENAI_BASE_URL
+    environment:
+      # Docker-internal service name — read server-side by the backend container itself, so
+      # (unlike NEXT_PUBLIC_API_URL below) the internal DNS name is correct here.
+      REDIS_URL: redis://redis:6379/0
+      # Must match what the browser actually sends as `Origin` (it talks to the frontend on the
+      # HOST-published port 3000, same reasoning as NEXT_PUBLIC_API_URL but for CORS instead of
+      # API calls).
+      FRONTEND_ORIGIN: http://localhost:3000
+      # Absolute path under the named volume below, overriding the "uploads" (relative-to-cwd)
+      # default in app/core/config.py — so uploaded files survive container restarts/recreates.
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - backend_uploads:/data/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/frontend.Dockerfile
+      args:
+        # BUILD-TIME only — see the long comment in frontend.Dockerfile. Host-published backend
+        # port, since the browser (not the frontend container) is what actually calls this URL.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: chatapp-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  backend_uploads:
+    name: chatapp_backend_uploads

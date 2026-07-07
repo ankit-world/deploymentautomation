@@ -1,0 +1,41 @@
+# Build context for infra/docker/*.Dockerfile is the repo root (see docker-compose.yml). Keep
+# this list in sync with .gitignore's equivalents so the "sending build context to Docker
+# daemon" step doesn't churn through dev-only artifacts that are never COPYed into an image
+# anyway.
+
+.git
+docs
+infra/aws-cli-scripts
+*.md
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+npm-debug.log*
+
+# Python
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.venv/
+backend/venv/
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+*.pyc
+
+# Local file storage (dev disk driver) — never bake uploaded files into an image layer
+backend/uploads/
+
+# Secrets — never bake into an image layer; injected via env_file/environment at runtime only
+.env
+.env.local
+backend/.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
