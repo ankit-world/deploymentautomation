@@ -7,8 +7,27 @@ backend built in session 01.
 
 ## Prerequisites
 
-- Session 01 done (auth + conversation/message CRUD working).
-- An OpenAI API key, provided by the user as `OPENAI_API_KEY`.
+- Session 01 done (auth + conversation/message CRUD working, verified live against Atlas).
+- `backend/.env` already has real values for `OPENAI_API_KEY` and `OPENAI_BASE_URL` — no need to
+  ask the user for these again.
+
+## Important: this is not api.openai.com
+
+`OPENAI_BASE_URL` points at `https://api.euron.one/api/v1/euri`, an OpenAI-*compatible* gateway
+(Euri/Euron), not OpenAI directly. Use the official `openai` Python SDK but construct the client
+with `base_url=settings.openai_base_url` (SDK supports this natively —
+`OpenAI(api_key=..., base_url=...)`). Before building the full abstraction:
+
+1. Hit the endpoint directly (e.g. `curl $OPENAI_BASE_URL/models` or a one-off SDK call) to find
+   out which model names it actually serves — don't assume `gpt-4o` or any specific OpenAI model
+   name exists on this gateway.
+2. Confirm whether streaming (`stream=True`) returns standard OpenAI-style SSE chunks.
+3. Confirm whether it accepts vision-style image inputs (`image_url` content parts) at all — if
+   not, the image-attachment path needs a fallback (e.g. reject with a clear error, or describe
+   the limitation to the user) rather than assuming vision works.
+
+If any of these diverge from OpenAI's actual behavior, note the divergence in
+`docs/ARCHITECTURE.md`'s LLM integration section so later sessions don't re-assume vanilla OpenAI.
 
 ## Read first
 
@@ -16,8 +35,9 @@ backend built in session 01.
 
 ## Deliverables
 
-- `app/services/llm.py` — OpenAI client wrapper; SSE-streaming chat completion; vision input for
-  images; text-injection for extracted PDF/Word/Excel content.
+- `app/services/llm.py` — OpenAI-compatible client wrapper (custom `base_url`); SSE-streaming
+  chat completion; vision input for images if the gateway supports it; text-injection for
+  extracted PDF/Word/Excel content.
 - `app/services/extract.py` — text extraction: pdfplumber (PDF), python-docx (Word),
   openpyxl/pandas (Excel).
 - `app/services/storage.py` — storage abstraction with a local-disk implementation now and an S3
