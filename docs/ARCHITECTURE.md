@@ -42,18 +42,44 @@ README.md
     assistant reply.
   - `files` — upload (returns file metadata + extracted-text preview), download (redirect to a
     presigned S3 URL in prod, direct byte stream in local dev).
-- **LLM integration**: OpenAI Chat Completions API. Text messages stream via SSE. Image
-  attachments are sent as vision inputs directly to a vision-capable model. PDF/Word/Excel
-  attachments are text-extracted server-side (pdfplumber, python-docx, openpyxl/pandas) and the
-  extracted text (truncated/chunked to fit context) is injected into the prompt alongside the
-  user's question. This is a context-stuffing MVP, not RAG — embeddings/vector search over large
-  documents is a possible future enhancement, not built in the initial sessions.
+- **LLM integration**: OpenAI Chat Completions API via the official `openai` Python SDK, but
+  `OPENAI_BASE_URL` actually points at a third-party OpenAI-*compatible* gateway (Euri/Euron,
+  `https://api.euron.one/api/v1/euri`), not `api.openai.com` — set via `base_url=` on the SDK
+  client. Verified in session 02 (see `app/services/llm.py`'s module docstring and
+  `docs/sessions/02-backend-llm-files.md` for the live-test evidence):
+  - The gateway is a multi-provider router: `GET /models` lists real-looking OpenAI, Anthropic,
+    Google, Meta, and Groq model ids all proxied through this one endpoint. Never assume a
+    specific model name exists without checking that list first. `gpt-4o-mini` is used as the
+    default (`settings.openai_model`) — present, non-premium (cheap), and vision-capable.
+  - `stream=True` behaves exactly like real OpenAI: standard `ChatCompletionChunk` objects,
+    `chunk.choices[0].delta.content` per token. No divergence found — text messages stream via
+    SSE, token-by-token, all the way through to the frontend.
+  - Vision works: `image_url` content parts with a base64 data URI are accepted by `gpt-4o-mini`
+    and produce accurate answers about image content. `settings.vision_supported` (default
+    `True`) gates this path; if a future model swap turns out not to support vision, flip it and
+    image attachments degrade to an inline text note instead of an API error (implemented and
+    unit tested even though not currently needed).
+  - PDF/Word/Excel attachments are text-extracted server-side (pdfplumber, python-docx,
+    openpyxl) and the extracted text (truncated to `settings.extracted_text_max_chars`, default
+    20k) is injected into the prompt alongside the user's question. This is a context-stuffing
+    MVP, not RAG — embeddings/vector search over large documents is a possible future
+    enhancement, not built in the initial sessions.
+  - The chat endpoint (`POST /conversations/{id}/messages`) responds `text/event-stream` with a
+    small custom SSE protocol: `event: user_message` (fired immediately so the client has the
+    persisted user message's id before tokens arrive), repeated `event: token` deltas, an
+    `event: error` if the LLM call fails, and a final `event: done` with the persisted assistant
+    message. HTTP status is 200 (not 201) since the response is a stream, not a single created
+    resource.
 - **File storage**: a small storage-abstraction interface (`storage.py`) with two
   implementations — local disk (dev) and S3 (prod, via boto3, presigned URLs for download).
   MongoDB stores only file metadata (filename, storage key, mimetype, size, extracted-text
   preview) linked to the message that carries it — never the raw bytes.
 - **Redis (ElastiCache in prod)**: refresh-token/session blacklist for logout, and per-user
-  rate limiting on the chat endpoint. Not used as a generic cache.
+  rate limiting on the chat endpoint (session 02, fixed-window INCR/EXPIRE counter). Not used as
+  a generic cache. This dev machine has no local Redis server, so when `REDIS_URL` is unset the
+  app automatically falls back to `fakeredis`'s async client (`app/core/redis_client.py`), which
+  implements the same `redis.asyncio` interface in-memory — the rate-limit code itself is
+  provider-agnostic and needs no changes once real Redis/ElastiCache exists (session 09).
 - **Config/secrets**: `OPENAI_API_KEY`, `MONGODB_URI`, `JWT_SECRET`, `REDIS_URL` — read from
   environment variables locally (`.env`, via `.env.example` as the template) and from AWS
   Secrets Manager in production (injected as ECS task-definition secrets, never baked into the

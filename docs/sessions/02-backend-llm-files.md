@@ -1,5 +1,34 @@
 # Session 02 — Backend LLM + Files
 
+**Status**: done. Verified live against the real Euri/Euron gateway and MongoDB Atlas (2026-07-07):
+signed up a throwaway user, posted a text message and got a real streamed SSE reply from
+`gpt-4o-mini` ("The capital of France is Paris."); uploaded one image (PNG), PDF, Word doc, and
+Excel file each generated as tiny fixtures, and a follow-up question about each got a correct,
+relevant answer (vision correctly named a solid purple test image; PDF/docx/xlsx extracted text
+was injected into the prompt and quoted back accurately, including a spreadsheet cell value).
+Download endpoint returned all four files byte-for-byte identical to the originals. 35 pytest
+tests pass with mocked LLM calls, fakeredis, and a temp-dir local storage backend — no network or
+Atlas calls in the automated suite. All live test data (user/conversations/messages/file metadata)
+was deleted from Atlas afterward and the dev server process was killed.
+
+Deviations from the OpenAI-compatible assumptions in this brief, all documented in
+`app/services/llm.py`'s module docstring and `docs/ARCHITECTURE.md`:
+- The gateway is a multi-provider router (OpenAI/Anthropic/Google/Meta/Groq models all listed
+  under one `/models` endpoint), not literally OpenAI — model names still had to be verified via
+  `GET {OPENAI_BASE_URL}/models` rather than assumed. Picked `gpt-4o-mini`: present, non-premium,
+  vision-capable.
+- Everything else (streaming chunk shape, vision `image_url` content parts) matched real OpenAI's
+  behavior exactly — no fallback/degradation logic was actually needed at runtime, though the
+  graceful-degrade path for vision (`settings.vision_supported`) is still implemented and unit
+  tested in case a future model swap isn't vision-capable.
+- No local Redis or Docker Redis container was used for dev; `fakeredis`'s async client is used
+  automatically whenever `REDIS_URL` is unset (see `app/core/redis_client.py`), matching the
+  brief's suggested fallback. The rate-limit code itself is written against the standard
+  `redis.asyncio` interface so nothing changes when real Redis/ElastiCache lands in session 09.
+- The chat endpoint's HTTP status is 200, not 201: FastAPI ignores a route decorator's
+  `status_code` when the handler returns a `Response` object directly (as the SSE
+  `StreamingResponse` does), and 200 is the conventional status for an SSE stream anyway.
+
 ## Goal
 
 Add the OpenAI-powered chat reply (streaming) and file attachment upload/parse/download to the

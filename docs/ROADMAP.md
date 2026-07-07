@@ -18,7 +18,7 @@ sequentially.
 
 - [x] 00 — Foundations & scaffolding
 - [x] 01 — Backend core (auth + conversation/message CRUD)
-- [ ] 02 — Backend LLM + files (OpenAI streaming, file upload/parse/download)
+- [x] 02 — Backend LLM + files (OpenAI streaming, file upload/parse/download)
 - [ ] 03 — Frontend core (scaffold, auth pages, protected layout, basic chat)
 - [ ] 04 — Frontend chat experience (streaming, file previews/downloads, markdown)
 - [ ] 05 — Dockerization & local end-to-end
