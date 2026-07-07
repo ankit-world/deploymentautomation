@@ -41,34 +41,5 @@ def test_conversations_are_scoped_to_owner(client):
     assert rename_resp.status_code == 404
 
 
-def test_post_message_creates_user_and_placeholder_assistant_reply(client):
-    _signup(client, email="ivan@example.com")
-    conversation = client.post("/conversations", json={"title": "Chat"}).json()
-
-    resp = client.post(
-        f"/conversations/{conversation['id']}/messages", json={"content": "Hello there"}
-    )
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["user_message"]["content"] == "Hello there"
-    assert body["user_message"]["role"] == "user"
-    assert body["assistant_message"]["role"] == "assistant"
-
-    list_resp = client.get(f"/conversations/{conversation['id']}/messages")
-    assert list_resp.status_code == 200
-    messages = list_resp.json()
-    assert len(messages) == 2
-    assert messages[0]["role"] == "user"
-    assert messages[1]["role"] == "assistant"
-
-
-def test_messages_require_conversation_ownership(client):
-    _signup(client, email="judy@example.com")
-    conversation = client.post("/conversations", json={"title": "Judy's chat"}).json()
-    client.post("/auth/logout")
-
-    _signup(client, email="mallory@example.com")
-    resp = client.post(
-        f"/conversations/{conversation['id']}/messages", json={"content": "Sneaky"}
-    )
-    assert resp.status_code == 404
+# Message posting/streaming tests live in test_messages.py (session 02 replaced the
+# placeholder-reply flow with real LLM streaming).
