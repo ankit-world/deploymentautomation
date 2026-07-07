@@ -154,6 +154,14 @@ README.md
 
 ## AWS topology (sessions 6-10)
 
+- **Account/CLI setup (session 06)**: account `788070448326`, CLI profile `chatapp`, IAM user
+  `ankitexp` (`AdministratorAccess` — a deliberate deviation from least-privilege, see
+  `docs/sessions/06-aws-account-bootstrap.md`), region `ap-south-1`. GitHub Actions deploy role:
+  `chatapp-github-deploy`, assumable only from `repo:ankit-world/deploymentautomation` on the
+  `main` branch via OIDC (no static keys in GitHub secrets). **Before running any AWS CLI command
+  for this project**, read `infra/aws-cli-scripts/README.md` — this machine has stray
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env vars from an unidentified source that silently
+  override `--profile` and once caused resources to be created in the wrong AWS account.
 - **VPC**: public + private subnets across 2 AZs. NAT Gateway in a public subnet so
   private-subnet tasks (backend, worker-side calls to OpenAI/MongoDB Atlas) have egress without
   being publicly reachable.

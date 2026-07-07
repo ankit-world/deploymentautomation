@@ -22,7 +22,7 @@ sequentially.
 - [x] 03 — Frontend core (scaffold, auth pages, protected layout, basic chat)
 - [x] 04 — Frontend chat experience (streaming, file previews/downloads, markdown)
 - [x] 05 — Dockerization & local end-to-end
-- [ ] 06 — AWS account bootstrap (CLI install, IAM user, OIDC role, budget alarm)
+- [x] 06 — AWS account bootstrap (CLI install, IAM user, OIDC role, budget alarm)
 - [ ] 07 — AWS networking + ECR (VPC, subnets, NAT, security groups, ECR repos)
 - [ ] 08 — AWS compute + ALB (ECS cluster, task defs, services, load balancer, Secrets Manager)
 - [ ] 09 — ElastiCache + CloudWatch (Redis, log groups, Container Insights, alarms)

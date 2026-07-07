@@ -1,5 +1,46 @@
 # Session 06 — AWS Account Bootstrap
 
+**Status**: done (2026-07-08), run interactively with the user (not a background agent — this
+session inherently needs a human present for account-level decisions and console-only steps).
+
+**What was built**: `infra/aws-cli-scripts/00-account-bootstrap.sh` (idempotent) creates a $20/mo
+budget alarm (80% actual / 100% forecasted email thresholds), an IAM OIDC provider trusting
+`token.actions.githubusercontent.com`, and an IAM role `chatapp-github-deploy` GitHub Actions can
+assume — trust policy scoped to `repo:ankit-world/deploymentautomation:ref:refs/heads/main` only
+(not other branches/PRs), permissions scoped to ECR push + ECS deploy actions + a
+condition-restricted `iam:PassRole` (not admin). Verified: `aws sts get-caller-identity`, budget/
+OIDC-provider/role all confirmed present via direct `aws` queries against account `788070448326`.
+
+**Deviations from the original plan, both decided by the user directly, not by Claude Code:**
+- **The local-CLI IAM user is `ankitexp` with full `AdministratorAccess`**, not the
+  least-privilege scoped policy the brief originally called for — the user created this user
+  themselves before the session started and chose to use it as-is rather than have a second,
+  narrower user created on top of it. Documented here as an accepted tradeoff, not an oversight.
+- **The AWS account is `788070448326`**, not whatever account a pre-existing, unrelated
+  `default` CLI profile (IAM user `github`, also `AdministratorAccess`) pointed at — that profile
+  predates this project, is left completely untouched, and must never be used for this project.
+
+**Real incident during this session, worth knowing about for any future AWS CLI work here**: this
+machine has `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` set as environment variables from a
+source that could not be identified (not a Windows User/Machine-level env var, not in any standard
+shell profile file). Environment-variable credentials silently override `--profile`/`AWS_PROFILE`
+in the AWS CLI's credential chain — there is no flag to force profile-based credentials to win.
+The bootstrap script's first run consequently created the budget/OIDC-provider/role in the *wrong*
+account (`837453223154`, the unrelated `github` user's account) despite explicitly requesting the
+`chatapp` profile. All three were confirmed created only moments earlier (via `CreateDate`/absence
+checks) and deleted from that account before re-running correctly. Every script in
+`infra/aws-cli-scripts/` now starts with `unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+AWS_SESSION_TOKEN` — see `infra/aws-cli-scripts/README.md` for the full warning. **Any ad-hoc
+`aws` command run outside these scripts must do the same unset first**, or it risks silently
+hitting the wrong account again.
+
+**Still outstanding — a console-only step only the user can do**: root account MFA is not yet
+enabled (`aws iam get-account-summary` shows `AccountMFAEnabled: 0`). This cannot be done via the
+CLI; the user needs to enable it themselves in the AWS Console (IAM → root user → MFA) with an
+authenticator app or hardware key. Also: the budget's email notification subscription (
+`ankitmarwaha7@gmail.com`) likely needs a one-time confirmation click from an AWS email before
+alerts actually fire — worth checking that inbox.
+
 ## Goal
 
 Get from "AWS account exists, nothing else configured" to "AWS CLI works locally with a scoped
