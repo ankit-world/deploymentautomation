@@ -156,7 +156,7 @@ README.md
 
 - **Account/CLI setup (session 06)**: account `788070448326`, CLI profile `chatapp`, IAM user
   `ankitexp` (`AdministratorAccess` — a deliberate deviation from least-privilege, see
-  `docs/sessions/06-aws-account-bootstrap.md`), region `ap-south-1`. GitHub Actions deploy role:
+  `docs/sessions/06-aws-account-bootstrap.md`), region `us-east-1`. GitHub Actions deploy role:
   `chatapp-github-deploy`, assumable only from `repo:ankit-world/deploymentautomation` on the
   `main` branch via OIDC (no static keys in GitHub secrets). **Before running any AWS CLI command
   for this project**, read `infra/aws-cli-scripts/README.md` — this machine has stray

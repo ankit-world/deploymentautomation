@@ -30,7 +30,7 @@ AWS_PROFILE=chatapp aws sts get-caller-identity   # must show Account: 788070448
 
 ## Profile / account for this project
 
-- AWS CLI profile: `chatapp` (in `~/.aws/credentials` and `~/.aws/config`, region `ap-south-1`).
+- AWS CLI profile: `chatapp` (in `~/.aws/credentials` and `~/.aws/config`, region `us-east-1`).
 - IAM user: `ankitexp`, **AdministratorAccess** (created directly by the project owner, not by a
   script — see `docs/sessions/06-aws-account-bootstrap.md` for why this deviates from the
   originally-planned least-privilege local-CLI user).

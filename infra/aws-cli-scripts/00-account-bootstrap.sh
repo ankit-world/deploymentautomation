@@ -27,7 +27,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
 PROJECT_NAME="chatapp"
 AWS_PROFILE="chatapp"
-AWS_REGION="ap-south-1"
+AWS_REGION="us-east-1"
 GITHUB_REPO="ankit-world/deploymentautomation"
 BUDGET_LIMIT_USD="20"
 BUDGET_NOTIFY_EMAIL="ankitmarwaha7@gmail.com"
