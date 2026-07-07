@@ -10,10 +10,14 @@
 # Writes resulting resource identifiers to .env.aws (gitignored) so later numbered scripts
 # (session 07+) can source it instead of re-querying the AWS API.
 #
-# Requires: AWS CLI configured under the `chatapp` profile (an admin IAM user, `ankitexp`,
+# Requires: AWS CLI configured under the `default` profile (an admin IAM user, `ankitexp`,
 # created directly by the project owner — see docs/sessions/06-aws-account-bootstrap.md for why
-# this deviates from the original "scoped local-CLI user" plan). openssl must be on PATH (used to
-# fetch GitHub's current OIDC TLS thumbprint rather than hardcoding one, which goes stale).
+# this deviates from the original "scoped local-CLI user" plan). There is no dedicated named
+# profile for this project anymore — `default` IS `ankitexp`/788070448326 (the old unrelated
+# `github`/other-account profile and the separate `chatapp` profile were both removed from
+# ~/.aws/credentials and ~/.aws/config directly by the project owner). openssl must be on PATH
+# (used to fetch GitHub's current OIDC TLS thumbprint rather than hardcoding one, which goes
+# stale).
 
 set -euo pipefail
 
@@ -22,11 +26,15 @@ set -euo pipefail
 # profile files — see docs/sessions/06-aws-account-bootstrap.md for the investigation). Env-var
 # credentials take precedence over --profile/AWS_PROFILE in the AWS CLI's credential chain no
 # matter what, so they MUST be unset here or every command in this script silently targets the
-# wrong AWS account.
+# wrong AWS account. This is now the ONLY thing standing between a plain `aws` command and the
+# wrong account, since `default` itself is correctly `ankitexp` — there's no longer a
+# wrong-by-default *profile* to accidentally pick, just these env vars silently winning over the
+# correct default. Confirmed still present and still resolving to the old `github` account as of
+# the region-fix follow-up (see docs/sessions/06-aws-account-bootstrap.md).
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
 PROJECT_NAME="chatapp"
-AWS_PROFILE="chatapp"
+AWS_PROFILE="default"
 AWS_REGION="us-east-1"
 GITHUB_REPO="ankit-world/deploymentautomation"
 BUDGET_LIMIT_USD="20"

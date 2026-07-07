@@ -12,7 +12,10 @@ This machine has `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` set as environment 
 unidentified source (confirmed not a Windows User/Machine env var, not in the usual shell profile
 files — the source was never located). **Environment-variable credentials always take precedence
 over `--profile`/`AWS_PROFILE` in the AWS CLI's credential chain, with no way to override that via
-flags.** Every script in this directory starts with:
+flags — this now includes overriding `default` itself**, since `default` was later repointed to
+the correct `ankitexp` user but these stray env vars still win over it. In other words: a bare
+`aws` command with zero flags on this machine still silently hits the wrong AWS account. Every
+script in this directory starts with:
 
 ```bash
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
@@ -25,15 +28,16 @@ you're on the right account before anything stateful:
 
 ```bash
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-AWS_PROFILE=chatapp aws sts get-caller-identity   # must show Account: 788070448326, user ankitexp
+aws sts get-caller-identity   # must show Account: 788070448326, user ankitexp
 ```
 
 ## Profile / account for this project
 
-- AWS CLI profile: `chatapp` (in `~/.aws/credentials` and `~/.aws/config`, region `us-east-1`).
+- AWS CLI profile: `default` (in `~/.aws/credentials` and `~/.aws/config`, region `us-east-1`).
+  There is no separate named profile for this project — a previously-created `chatapp` profile
+  and an old, unrelated `default` profile/IAM user (`github`, a different AWS account) were both
+  removed by the project owner directly; `default` now IS this project's identity.
 - IAM user: `ankitexp`, **AdministratorAccess** (created directly by the project owner, not by a
   script — see `docs/sessions/06-aws-account-bootstrap.md` for why this deviates from the
   originally-planned least-privilege local-CLI user).
 - Account: `788070448326`.
-- There is also an unrelated pre-existing `default` profile/IAM user (`github`, a different AWS
-  account, also admin) on this machine from other work — never use it for this project.

@@ -34,6 +34,15 @@ AWS_SESSION_TOKEN` — see `infra/aws-cli-scripts/README.md` for the full warnin
 `aws` command run outside these scripts must do the same unset first**, or it risks silently
 hitting the wrong account again.
 
+**Follow-up (same day)**: the user corrected the region to `us-east-1` (was mistakenly set up as
+`ap-south-1`) and separately cleaned up `~/.aws/credentials`/`~/.aws/config` directly — removing
+the old unrelated `github`/`837453223154` `default` profile entry and the separate `chatapp`
+profile entry, leaving a single `default` profile that IS `ankitexp`/`788070448326`/`us-east-1`.
+All scripts/docs were updated accordingly (`AWS_PROFILE=default`, not `chatapp`). The stray
+env-var override problem described above is unchanged by this — confirmed still present, and now
+overrides `default` itself rather than a separately-named wrong profile, so the `unset` step
+matters just as much as before.
+
 **Still outstanding — a console-only step only the user can do**: root account MFA is not yet
 enabled (`aws iam get-account-summary` shows `AccountMFAEnabled: 0`). This cannot be done via the
 CLI; the user needs to enable it themselves in the AWS Console (IAM → root user → MFA) with an
