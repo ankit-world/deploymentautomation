@@ -163,16 +163,25 @@ README.md
   for this project**, read `infra/aws-cli-scripts/README.md` — this machine has stray
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env vars from an unidentified source that silently
   override even `default`, and once caused resources to be created in the wrong AWS account.
-- **VPC**: public + private subnets across 2 AZs. NAT Gateway in a public subnet so
-  private-subnet tasks (backend, worker-side calls to OpenAI/MongoDB Atlas) have egress without
-  being publicly reachable.
+- **VPC (session 07, live)**: `vpc-0a512042a5a142333` (10.0.0.0/16) — public + private subnets
+  across `us-east-1a`/`us-east-1b`. A single NAT Gateway (not one per AZ — cost tradeoff, ~$32/mo
+  alone) in the public subnet so private-subnet tasks (backend, worker-side calls to OpenAI/
+  MongoDB Atlas) have egress without being publicly reachable. Security groups: `chatapp-alb-sg`
+  (80/443 from internet), `chatapp-ecs-sg` (app ports from the ALB SG only), `chatapp-cache-sg`
+  (6379 from the ECS SG only) — nothing but the ALB is reachable from the open internet. All
+  resource IDs in `infra/aws-cli-scripts/.env.aws` (gitignored); provisioned by
+  `infra/aws-cli-scripts/01-vpc.sh` and `02-security-groups.sh`.
 - **ALB**: sits in the public subnets. Path-based routing:
   - `/` → frontend ECS service
   - `/api/*` → backend ECS service
   - `/grafana/*` → grafana ECS service
 - **ECS**: one Fargate cluster, three services (frontend, backend, grafana), each with its own
   task definition and ECR repository. Fargate = no EC2 instances to manage.
-- **ECR**: one repo per service; GitHub Actions builds and pushes images here on merge to `main`.
+- **ECR (session 07, live)**: `chatapp-frontend`, `chatapp-backend`, `chatapp-grafana`
+  (`788070448326.dkr.ecr.us-east-1.amazonaws.com/chatapp-*`, scan-on-push enabled), provisioned by
+  `infra/aws-cli-scripts/03-ecr.sh`, currently empty (a connectivity test image was pushed and
+  removed during session 07's verification). GitHub Actions builds and pushes real images here on
+  merge to `main` starting session 11; session 08 does the first manual push.
 - **ElastiCache**: Redis, single node to start, in a private subnet, security-group-restricted to
   the backend service only.
 - **Secrets Manager**: holds `OPENAI_API_KEY`, `MONGODB_URI`, `JWT_SECRET`; referenced by ARN in

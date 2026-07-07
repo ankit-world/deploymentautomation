@@ -23,7 +23,7 @@ sequentially.
 - [x] 04 — Frontend chat experience (streaming, file previews/downloads, markdown)
 - [x] 05 — Dockerization & local end-to-end
 - [x] 06 — AWS account bootstrap (CLI install, IAM user, OIDC role, budget alarm)
-- [ ] 07 — AWS networking + ECR (VPC, subnets, NAT, security groups, ECR repos)
+- [x] 07 — AWS networking + ECR (VPC, subnets, NAT, security groups, ECR repos)
 - [ ] 08 — AWS compute + ALB (ECS cluster, task defs, services, load balancer, Secrets Manager)
 - [ ] 09 — ElastiCache + CloudWatch (Redis, log groups, Container Insights, alarms)
 - [ ] 10 — Grafana on Fargate (config-as-code dashboards over CloudWatch)
