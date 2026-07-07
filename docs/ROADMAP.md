@@ -19,7 +19,7 @@ sequentially.
 - [x] 00 — Foundations & scaffolding
 - [x] 01 — Backend core (auth + conversation/message CRUD)
 - [x] 02 — Backend LLM + files (OpenAI streaming, file upload/parse/download)
-- [ ] 03 — Frontend core (scaffold, auth pages, protected layout, basic chat)
+- [x] 03 — Frontend core (scaffold, auth pages, protected layout, basic chat)
 - [ ] 04 — Frontend chat experience (streaming, file previews/downloads, markdown)
 - [ ] 05 — Dockerization & local end-to-end
 - [ ] 06 — AWS account bootstrap (CLI install, IAM user, OIDC role, budget alarm)
