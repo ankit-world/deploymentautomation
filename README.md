@@ -66,3 +66,47 @@ Docker Compose uses.
 
 Copy `.env.example` to `.env` (repo root, for Docker Compose) and fill in real values. Never
 commit `.env`.
+
+## CI/CD (session 11)
+
+- `.github/workflows/ci.yml` — runs on every pull request: backend tests (`pytest`) and frontend
+  lint + build (`npm run lint`, `npm run build`). No AWS access at all.
+- `.github/workflows/deploy.yml` — runs on every push to `main`: builds and pushes all three
+  Docker images (backend, frontend, grafana) to ECR tagged with the commit SHA, registers a new
+  ECS task-definition revision for each service with the new image, force-deploys it, and waits
+  for all three services to stabilize. Auth is via GitHub's OIDC provider assuming
+  `chatapp-github-deploy` — no long-lived AWS keys stored in GitHub.
+
+### Rollback
+
+Every deploy registers a new task-definition revision under the same family; old revisions aren't
+deleted, so rolling back is just pointing the service at a previous revision and forcing a fresh
+deployment — no rebuild needed. Do this from a machine with the `default` AWS CLI profile
+configured for this account (see `infra/aws-cli-scripts/README.md` for the local gotchas —
+`unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN` first).
+
+1. Find the revision you want to roll back to:
+   ```
+   aws ecs list-task-definitions --family-prefix chatapp-backend --sort DESC --profile default --region us-east-1
+   ```
+   (swap `chatapp-backend` for `chatapp-frontend` or `chatapp-grafana` for the other two services —
+   family name and service name are identical for all three).
+2. Point the service at that revision and force a fresh deployment:
+   ```
+   aws ecs update-service --cluster chatapp-cluster --service chatapp-backend \
+     --task-definition chatapp-backend:<previous-revision> --force-new-deployment \
+     --profile default --region us-east-1
+   ```
+3. Wait for it to stabilize:
+   ```
+   aws ecs wait services-stable --cluster chatapp-cluster --services chatapp-backend \
+     --profile default --region us-east-1
+   ```
+4. Confirm: `aws ecs describe-services --cluster chatapp-cluster --services chatapp-backend --query 'services[0].taskDefinition' --profile default --region us-east-1`, and re-check the app
+   (`/health`, `/login`, `/grafana/api/health` on the ALB DNS name) behaves as expected.
+
+This works for any of the three services (`chatapp-backend`, `chatapp-frontend`,
+`chatapp-grafana`) — just substitute the service/family name. Rolling back does **not** revert
+the ECR image tag or the Git history, only which task-definition revision (and therefore which
+image) each service is currently running — the next push to `main` will redeploy the latest
+commit again, so a rollback is a temporary mitigation, not a permanent fix.

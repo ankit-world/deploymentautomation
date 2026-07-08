@@ -1,0 +1,133 @@
+# Session 11 — CD: on every push to main, build all three Docker images (backend, frontend,
+# grafana), push to ECR tagged with the commit SHA, then redeploy all three ECS services onto new
+# task-definition revisions carrying those images. This automates exactly what
+# infra/aws-cli-scripts/07-task-defs.sh + 08-ecs-services.sh (backend/frontend) and
+# 10-grafana-ecs.sh (grafana) have been doing by hand since sessions 08/10: fetch the current task
+# def -> patch only the image URI -> register a new revision -> force-new-deployment -> wait for
+# stability.
+#
+# Resource identifiers below (account id, ECR registry, cluster/family/service names, ALB DNS
+# name) are copied from infra/aws-cli-scripts/.env.aws, which is gitignored and therefore not
+# available to the GitHub Actions runner. None of these are secrets (they're the same values
+# already visible in every infra/aws-cli-scripts/*.sh script's output and in docs/ARCHITECTURE.md)
+# — only AWS_ACCESS_KEY/SECRET would need to be a secret, and this workflow never uses those: auth
+# is OIDC role assumption (aws-actions/configure-aws-credentials), no long-lived keys stored
+# anywhere in GitHub.
+#
+# permissions: id-token: write is required for configure-aws-credentials' OIDC role assumption to
+# work at all (docs/sessions/11-cicd-github-actions.md correction #5) — omitting it fails silently
+# as a permissions error at runtime, not at workflow-syntax time.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "788070448326"
+  ECR_REGISTRY: 788070448326.dkr.ecr.us-east-1.amazonaws.com
+  CLUSTER_NAME: chatapp-cluster
+  ALB_DNS_NAME: chatapp-alb-811403579.us-east-1.elb.amazonaws.com
+
+jobs:
+  deploy:
+    name: Build, push, and deploy to ECS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::788070448326:role/chatapp-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        run: |
+          set -euo pipefail
+          docker build -f infra/docker/backend.Dockerfile \
+            -t "${ECR_REGISTRY}/chatapp-backend:${GITHUB_SHA}" .
+          docker push "${ECR_REGISTRY}/chatapp-backend:${GITHUB_SHA}"
+
+      - name: Build and push frontend image
+        run: |
+          set -euo pipefail
+          # NEXT_PUBLIC_API_URL is a browser-side BUILD-TIME value (see
+          # infra/docker/frontend.Dockerfile's header comment / docs/ARCHITECTURE.md) — must point
+          # at the real ALB DNS name here, same as every manual deploy so far.
+          docker build -f infra/docker/frontend.Dockerfile \
+            --build-arg NEXT_PUBLIC_API_URL="http://${ALB_DNS_NAME}" \
+            -t "${ECR_REGISTRY}/chatapp-frontend:${GITHUB_SHA}" .
+          docker push "${ECR_REGISTRY}/chatapp-frontend:${GITHUB_SHA}"
+
+      - name: Build and push grafana image
+        run: |
+          set -euo pipefail
+          docker build -f infra/docker/grafana.Dockerfile \
+            -t "${ECR_REGISTRY}/chatapp-grafana:${GITHUB_SHA}" .
+          docker push "${ECR_REGISTRY}/chatapp-grafana:${GITHUB_SHA}"
+
+      - name: Register new task-definition revisions and update services
+        run: |
+          set -euo pipefail
+
+          # Fetch the current task def for $1 (family/service name, identical for all three
+          # services in this project), replace only the named container's image with $3, strip
+          # the fields describe-task-definition returns that register-task-definition rejects,
+          # register the new revision, and force-new-deployment the service onto it.
+          deploy_service() {
+            local family="$1" container="$2" image="$3"
+
+            echo "== ${family}: fetching current task definition =="
+            aws ecs describe-task-definition --task-definition "$family" \
+              --query 'taskDefinition' > "current-${family}.json"
+
+            echo "== ${family}: patching '${container}' container image to ${image} =="
+            jq --arg IMAGE "$image" --arg NAME "$container" \
+              '(.containerDefinitions[] | select(.name == $NAME) | .image) = $IMAGE
+               | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                     .compatibilities, .registeredAt, .registeredBy)' \
+              "current-${family}.json" > "new-${family}.json"
+
+            echo "== ${family}: registering new task definition revision =="
+            local new_arn
+            new_arn="$(aws ecs register-task-definition \
+              --cli-input-json "file://new-${family}.json" \
+              --query 'taskDefinition.taskDefinitionArn' --output text)"
+            echo "Registered: ${new_arn}"
+
+            echo "== ${family}: forcing new deployment =="
+            aws ecs update-service --cluster "$CLUSTER_NAME" --service "$family" \
+              --task-definition "$new_arn" --force-new-deployment >/dev/null
+          }
+
+          deploy_service chatapp-backend  backend  "${ECR_REGISTRY}/chatapp-backend:${GITHUB_SHA}"
+          deploy_service chatapp-frontend frontend "${ECR_REGISTRY}/chatapp-frontend:${GITHUB_SHA}"
+          deploy_service chatapp-grafana  grafana  "${ECR_REGISTRY}/chatapp-grafana:${GITHUB_SHA}"
+
+      - name: Wait for all three services to stabilize
+        run: |
+          aws ecs wait services-stable --cluster "$CLUSTER_NAME" \
+            --services chatapp-backend chatapp-frontend chatapp-grafana
+
+      - name: Verify the app is live
+        run: |
+          set -euo pipefail
+          for path in /health /login /grafana/api/health; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://${ALB_DNS_NAME}${path}")"
+            echo "${path} -> ${code}"
+            if [ "$code" != "200" ]; then
+              echo "::error::${path} returned ${code}, expected 200"
+              exit 1
+            fi
+          done
