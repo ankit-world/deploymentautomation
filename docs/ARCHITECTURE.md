@@ -74,12 +74,18 @@ README.md
   implementations — local disk (dev) and S3 (prod, via boto3, presigned URLs for download).
   MongoDB stores only file metadata (filename, storage key, mimetype, size, extracted-text
   preview) linked to the message that carries it — never the raw bytes.
-- **Redis (ElastiCache in prod)**: refresh-token/session blacklist for logout, and per-user
-  rate limiting on the chat endpoint (session 02, fixed-window INCR/EXPIRE counter). Not used as
-  a generic cache. This dev machine has no local Redis server, so when `REDIS_URL` is unset the
-  app automatically falls back to `fakeredis`'s async client (`app/core/redis_client.py`), which
-  implements the same `redis.asyncio` interface in-memory — the rate-limit code itself is
-  provider-agnostic and needs no changes once real Redis/ElastiCache exists (session 09).
+- **Redis (ElastiCache in prod, live session 09)**: refresh-token blacklist for logout
+  (`app/core/token_blacklist.py`, session 09 — keyed by a SHA-256 hash of the token, entry TTL =
+  the token's own remaining lifetime), and per-user rate limiting on the chat endpoint (session 02,
+  fixed-window INCR/EXPIRE counter). Not used as a generic cache. This dev machine has no local
+  Redis server, so when `REDIS_URL` is unset the app automatically falls back to `fakeredis`'s
+  async client (`app/core/redis_client.py`), which implements the same `redis.asyncio` interface
+  in-memory — both the rate-limit and blacklist code are provider-agnostic and needed no further
+  changes once real Redis/ElastiCache existed. **Correction**: until session 09, `POST
+  /auth/logout` was actually cookie-clear-only — no server-side revocation existed despite this
+  section previously describing it as already working (see
+  `docs/sessions/09-elasticache-cloudwatch.md`'s "Correction" section for the full story and live
+  proof: replaying a pre-logout refresh token now gets `401` from `POST /auth/refresh`).
 - **Config/secrets**: `OPENAI_API_KEY`, `MONGODB_URI`, `JWT_SECRET`, `REDIS_URL` — read from
   environment variables locally (`.env`, via `.env.example` as the template) and from AWS
   Secrets Manager in production (injected as ECS task-definition secrets, never baked into the
@@ -201,16 +207,29 @@ README.md
   `docs/sessions/08-aws-compute-alb.md` correction #2). `backend/app/services/storage.py`'s
   `S3Storage` (built in session 02 specifically for this) generates presigned URLs for downloads;
   the backend redirects to them (`307`) rather than proxying bytes itself.
-- **ElastiCache**: Redis, single node to start, in a private subnet, security-group-restricted to
-  the backend service only. Not live yet — session 09.
+- **ElastiCache (session 09, live)**: single-node Redis cluster `chatapp-redis` (`cache.t3.micro`,
+  engine Redis 7.1), private subnets (`chatapp-cache-subnet-group`, spanning both), restricted to
+  `chatapp-ecs-sg` via `chatapp-cache-sg` (session 07). No Multi-AZ/replication — deliberate cost
+  call, same tone as the single-NAT-Gateway tradeoff above: this backs a rate-limit counter and a
+  refresh-token blacklist, not data worth paying for HA on. Endpoint:
+  `chatapp-redis.ojv1ik.0001.use1.cache.amazonaws.com:6379`. Wired into the backend as
+  `REDIS_URL=redis://<endpoint>:6379/0`, a plain (non-secret) task-definition environment entry —
+  an in-VPC endpoint isn't sensitive the way a DB connection string is. Backend redeployed on
+  `chatapp-backend` task-definition revision 2. Provisioned by
+  `infra/aws-cli-scripts/09-elasticache.sh` + `09b-redis-deploy.sh`.
 - **Secrets Manager (session 08, live)**: `chatapp/mongodb-uri`, `chatapp/jwt-secret`,
   `chatapp/openai-api-key`, `chatapp/openai-base-url` — four, not three; `OPENAI_BASE_URL` is
   required too since this project uses a non-OpenAI gateway. Referenced by ARN in the backend
   task definition (`infra/aws-cli-scripts/07-task-defs.sh`) so secrets never appear in the image,
   task def JSON in git, or GitHub Actions logs. `FRONTEND_ORIGIN`/`S3_BUCKET`/`AWS_REGION` are
   plain (non-secret) task-definition environment entries, not Secrets Manager entries.
-- **CloudWatch (partial)**: log groups `/ecs/chatapp-backend`/`/ecs/chatapp-frontend` exist and
-  are receiving real logs (session 08). Container Insights and alarms are session 09.
+- **CloudWatch (session 08/09, live)**: log groups `/ecs/chatapp-backend`/`/ecs/chatapp-frontend`
+  exist and are receiving real logs (session 08). Container Insights enabled on `chatapp-cluster`
+  (session 09, `infra/aws-cli-scripts/09c-cloudwatch.sh`). Seven alarms wired to SNS topic
+  `chatapp-alerts` (email subscription `ankitmarwaha7@gmail.com`, same address as the session-06
+  budget alarm — **needs the same one-time confirmation click**): running-task-count-below-desired
+  and CPU/memory > 80% for both `chatapp-backend`/`chatapp-frontend`, plus an ALB target 5xx-rate
+  alarm (metric math, > 5% over 5 minutes). All in `OK` state as of session 09.
 - **Grafana**: self-hosted on Fargate, not Amazon Managed Grafana. Its datasource
   (CloudWatch) and dashboards are provisioned as code (YAML/JSON baked into the Grafana Docker
   image at build time via its provisioning directories) so the service stays stateless — no EFS
