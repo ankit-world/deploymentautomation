@@ -1,0 +1,21 @@
+# Session 10 — CloudWatch datasource, provisioned as code (baked into the Grafana image, not
+# configured via the UI — see docs/ARCHITECTURE.md "Grafana" bullet).
+#
+# authType: default means the CloudWatch plugin uses the AWS SDK's default credential chain,
+# which on Fargate resolves to the container credentials endpoint backed by the task's IAM task
+# role (chatapp-grafana-task-role, granted cloudwatch:GetMetricData/ListMetrics/DescribeAlarms
+# only — see infra/aws-cli-scripts/10-grafana-ecs.sh). No static AWS access keys anywhere in this
+# file or the image — that's the whole point of using a task role instead.
+
+apiVersion: 1
+
+datasources:
+  - name: CloudWatch
+    uid: cloudwatch
+    type: cloudwatch
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      authType: default
+      defaultRegion: us-east-1

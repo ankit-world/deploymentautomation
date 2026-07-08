@@ -1,0 +1,18 @@
+# Session 10 — dashboards provider config: tells Grafana to load every *.json file in this same
+# directory as a provisioned (file-backed) dashboard at startup. Paired with cloudwatch.yml's
+# datasource provisioning so the whole Grafana service is stateless/config-as-code — no DB, no
+# EFS volume, redeploying the image redeploys the dashboards (see docs/ARCHITECTURE.md).
+
+apiVersion: 1
+
+providers:
+  - name: chatapp-infra
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
