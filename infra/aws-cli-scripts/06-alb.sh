@@ -77,6 +77,14 @@ create_tg() {
   else
     echo "Target group $name already exists: $arn" >&2
   fi
+  # Drop connection-draining from the default 300s to 30s. These are stateless HTTP services, so
+  # there are no long-lived connections worth draining for 5 minutes — and at desiredCount=1 the
+  # full 300s drain of the old task on every rolling deploy pushes total stabilization past the
+  # `aws ecs wait services-stable` 10-minute budget in deploy.yml, failing the pipeline step even
+  # though the deploy itself completes fine. Applied on every run (idempotent), existing TGs too.
+  aws elbv2 modify-target-group-attributes --target-group-arn "$arn" \
+    --attributes "Key=deregistration_delay.timeout_seconds,Value=30" >/dev/null
+  echo "Set deregistration delay to 30s on $name" >&2
   echo "$arn"
 }
 

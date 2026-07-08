@@ -236,6 +236,13 @@ if [ -z "${GRAFANA_TG_ARN:-}" ] || [ "$GRAFANA_TG_ARN" = "None" ]; then
 else
   echo "Target group already exists: $GRAFANA_TG_ARN"
 fi
+# Drop connection-draining from the default 300s to 30s — same reason as the backend/frontend
+# target groups in 06-alb.sh: a stateless service at desiredCount=1 draining the old task for a
+# full 5 minutes on every deploy pushes stabilization past deploy.yml's `wait services-stable`
+# budget. Idempotent, applied on every run.
+aws elbv2 modify-target-group-attributes --target-group-arn "$GRAFANA_TG_ARN" \
+  --attributes "Key=deregistration_delay.timeout_seconds,Value=30" >/dev/null
+echo "Set deregistration delay to 30s on ${PROJECT_NAME}-grafana-tg"
 
 echo
 echo "== Listener rule (/grafana*, priority 20) =="
