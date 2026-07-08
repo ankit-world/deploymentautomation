@@ -1,10 +1,25 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.db import close_db
+from app.core.redis_client import close_redis
 from app.routers import auth, conversations, files, messages
 
-app = FastAPI(title="ChatGPT-style App API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # ECS sends SIGTERM on every rolling redeploy (session 11 made these automatic on every
+    # push to main) — close both connection pools gracefully instead of the socket just being
+    # dropped. See close_db()/close_redis() for why there's no matching startup step.
+    close_db()
+    await close_redis()
+
+
+app = FastAPI(title="ChatGPT-style App API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

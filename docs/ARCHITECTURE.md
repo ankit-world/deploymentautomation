@@ -90,6 +90,15 @@ README.md
   environment variables locally (`.env`, via `.env.example` as the template) and from AWS
   Secrets Manager in production (injected as ECS task-definition secrets, never baked into the
   image).
+- **Lifespan**: `app/main.py` uses a FastAPI `lifespan` context manager to close the Motor and
+  Redis connection pools gracefully on shutdown (`app/core/db.py`'s `close_db()`,
+  `app/core/redis_client.py`'s `close_redis()`) — ECS sends SIGTERM on every rolling redeploy
+  (automatic since session 11), so this matters in practice, not just in theory. Deliberately no
+  matching startup ping: `tests/conftest.py`'s `TestClient(app)` runs the real lifespan on every
+  test (function-scoped fixture, 36 tests), and `dependency_overrides` only intercepts
+  `Depends()`-injected calls during request handling — a ping inside `lifespan` would bypass the
+  test suite's mocked DB and hang against the default `mongodb://localhost:27017` (~30s Motor
+  server-selection timeout) once per test.
 
 ## Frontend (Next.js)
 

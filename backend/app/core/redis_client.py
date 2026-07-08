@@ -30,3 +30,13 @@ async def get_redis() -> Redis:
     if _client is None:
         _client = _create_client()
     return _client
+
+
+async def close_redis() -> None:
+    """Called from app.main's lifespan on shutdown for the same graceful-SIGTERM reason as
+    app.core.db.close_db(). No-ops if get_redis() was never called (e.g. a task that shut down
+    before handling any chat request) — nothing to close."""
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
