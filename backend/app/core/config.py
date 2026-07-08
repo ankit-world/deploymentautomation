@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     frontend_origin: str = "http://localhost:3000"
 
+    # --- Structured logging (see app/core/logging_config.py) ---
+    log_level: str = "INFO"
+
     # --- Session 02: LLM ---
     # OPENAI_BASE_URL points at a third-party OpenAI-*compatible* gateway (Euri/Euron), not
     # api.openai.com. See docs/ARCHITECTURE.md "LLM integration" for what was verified about it

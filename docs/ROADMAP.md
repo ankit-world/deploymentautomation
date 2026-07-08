@@ -46,6 +46,13 @@ scheduled sessions:
 - **FastAPI lifespan** (2026-07-08) — `app/main.py` never had one; added graceful Mongo/Redis
   shutdown and explicit (not import-time-side-effect) connection setup. See `docs/ARCHITECTURE.md`'s
   Backend section, "Lifespan" entry.
+- **Structured application logging** (2026-07-08) — a second gap in the same original request as
+  the metrics one above ("log each and everything... inside CloudWatch"): the backend had
+  essentially no application-level logging (2 exception handlers total). Added structured JSON
+  logging for every request and every user-facing action, with `user_id` context. ALB S3 access
+  logs were considered as a companion fix but deliberately skipped — they land in S3, not
+  CloudWatch, so they don't match the literal ask. See `docs/ARCHITECTURE.md`'s "Structured
+  logging" entry and `backend/app/core/logging_config.py`.
 
 ## Dependency order
 

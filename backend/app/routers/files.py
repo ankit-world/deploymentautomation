@@ -1,3 +1,4 @@
+import logging
 import mimetypes
 import uuid
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from app.models.user import UserOut
 from app.routers.conversations import get_owned_conversation
 from app.services.extract import classify_kind, extract_text
 from app.services.storage import StorageBackend, get_storage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations/{conversation_id}/files", tags=["files"])
 
@@ -86,6 +89,18 @@ async def upload_file(
     result = await db.files.insert_one(doc)
     doc["_id"] = result.inserted_id
     await metrics.record_file_upload(kind, len(data))
+    logger.info(
+        "file uploaded",
+        extra={
+            "event": "file_uploaded",
+            "user_id": current_user.id,
+            "conversation_id": conversation_id,
+            "file_id": str(result.inserted_id),
+            "uploaded_filename": filename,
+            "kind": kind,
+            "size": len(data),
+        },
+    )
 
     preview = (extracted_text[:PREVIEW_CHARS] if extracted_text else None) or None
     return FileOut(**serialize_doc(doc), extracted_text_preview=preview)
@@ -101,6 +116,16 @@ async def download_file(
 ):
     await get_owned_conversation(conversation_id, current_user.id, db)
     doc = await get_owned_file(conversation_id, file_id, current_user.id, db)
+    logger.info(
+        "file downloaded",
+        extra={
+            "event": "file_downloaded",
+            "user_id": current_user.id,
+            "conversation_id": conversation_id,
+            "file_id": file_id,
+            "uploaded_filename": doc["filename"],
+        },
+    )
 
     redirect_url = storage.download_url(doc["storage_key"])
     if redirect_url:

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
@@ -20,6 +21,8 @@ from app.core.serialization import serialize_doc
 from app.core.token_blacklist import blacklist_refresh_token, is_refresh_token_blacklisted
 from app.dependencies import get_current_user
 from app.models.user import UserLogin, UserOut, UserSignup
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -57,6 +60,10 @@ async def signup(
 ) -> UserOut:
     existing = await db.users.find_one({"email": body.email.lower()})
     if existing is not None:
+        logger.info(
+            "signup rejected: email already registered",
+            extra={"event": "signup_rejected", "email": body.email.lower()},
+        )
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
 
     now = datetime.now(timezone.utc)
@@ -70,6 +77,14 @@ async def signup(
     doc["_id"] = result.inserted_id
 
     _set_auth_cookies(response, str(result.inserted_id))
+    logger.info(
+        "user signed up",
+        extra={
+            "event": "signup",
+            "user_id": str(result.inserted_id),
+            "email": body.email.lower(),
+        },
+    )
     return UserOut(**serialize_doc(doc))
 
 
@@ -79,9 +94,17 @@ async def login(
 ) -> UserOut:
     doc = await db.users.find_one({"email": body.email.lower()})
     if doc is None or not verify_password(body.password, doc["hashed_password"]):
+        logger.info(
+            "login failed",
+            extra={"event": "login_failed", "email": body.email.lower()},
+        )
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
 
     _set_auth_cookies(response, str(doc["_id"]))
+    logger.info(
+        "user logged in",
+        extra={"event": "login", "user_id": str(doc["_id"]), "email": body.email.lower()},
+    )
     return UserOut(**serialize_doc(doc))
 
 
@@ -125,10 +148,16 @@ async def logout(
     # The short-lived access token is still only revoked by cookie-clear + its own expiry (15 min
     # default) — blacklisting it too would mean an extra Redis round trip on every authenticated
     # request; not worth it for a token that short-lived.
+    user_id = None
     if refresh_token is not None:
         await blacklist_refresh_token(redis, refresh_token)
+        try:
+            user_id = decode_token(refresh_token, REFRESH_TOKEN_TYPE)
+        except InvalidTokenError:
+            pass  # token was already invalid/expired — nothing useful to log as user_id
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token", path="/auth")
+    logger.info("user logged out", extra={"event": "logout", "user_id": user_id})
 
 
 @router.get("/me", response_model=UserOut)

@@ -1,14 +1,24 @@
+import logging
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core import metrics
 from app.core.config import settings
-from app.core.db import close_db, connect_db
-from app.core.redis_client import close_redis, connect_redis
-from app.routers import auth, conversations, files, messages
+from app.core.logging_config import setup_logging
+
+# Must run before any other app.* module's logger is first used, so every log line (including
+# ones emitted during router/service import, if any ever are) goes through the JSON formatter.
+setup_logging(settings.log_level)
+
+from app.core import metrics  # noqa: E402
+from app.core.db import close_db, connect_db  # noqa: E402
+from app.core.redis_client import close_redis, connect_redis  # noqa: E402
+from app.core.security import ACCESS_TOKEN_TYPE, InvalidTokenError, decode_token  # noqa: E402
+from app.routers import auth, conversations, files, messages  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -45,19 +55,32 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
+def _resolve_user_id(request: Request) -> str | None:
+    """Best-effort user identity for logging only — not an auth check (get_current_user, via
+    Depends, is what actually enforces auth on protected routes). Never raises: an absent,
+    expired, or malformed access_token cookie just means the log line has no user_id, same as an
+    unauthenticated request genuinely would."""
+    token = request.cookies.get("access_token")
+    if token is None:
+        return None
+    try:
+        return decode_token(token, ACCESS_TOKEN_TYPE)
+    except InvalidTokenError:
+        return None
+
+
 @app.middleware("http")
-async def metrics_middleware(request: Request, call_next):
-    """Records one RequestCount/RequestDuration/error-count metric per HTTP request — see
-    app/core/metrics.py. Skips /health: the ALB polls it roughly every 30s per target, and that
-    traffic is infrastructure noise, not application traffic worth counting alongside real usage.
+async def observability_middleware(request: Request, call_next):
+    """Records one RequestCount/RequestDuration/error-count metric (app/core/metrics.py) and one
+    structured JSON log line (app/core/logging_config.py) per HTTP request. Skips /health: the
+    ALB polls it roughly every 30s per target, and that traffic is infrastructure noise, not
+    application traffic worth counting/logging alongside real usage.
 
     Uses `request.scope["route"].path` (the templated path, e.g.
     "/conversations/{conversation_id}/messages") rather than `request.url.path` (which would
-    contain real IDs) — using the raw path would make every distinct conversation/file id its
-    own value, which is fine as a log property but would be a real problem if it were ever used
-    as a metric dimension. Falls back to the raw path for genuinely unmatched routes (404s),
-    which don't have a `route` in scope at all — cardinality risk here is bounded by "how many
-    distinct nonexistent paths get requested," normally low outside of a scanning/attack burst.
+    contain real IDs) for the *metric* — using the raw path would make every distinct
+    conversation/file id its own dimension value. The raw path is fine (and more useful) for the
+    *log* line, which doesn't have metric cardinality concerns, so both are recorded.
     """
     if request.url.path == "/health":
         return await call_next(request)
@@ -69,5 +92,19 @@ async def metrics_middleware(request: Request, call_next):
     route = request.scope.get("route")
     route_path = route.path if route is not None else request.url.path
     await metrics.record_request(route_path, request.method, response.status_code, duration_ms)
+
+    logger.info(
+        "request completed",
+        extra={
+            "event": "request",
+            "method": request.method,
+            "path": request.url.path,
+            "route": route_path,
+            "status_code": response.status_code,
+            "duration_ms": round(duration_ms, 2),
+            "user_id": _resolve_user_id(request),
+            "client_ip": request.client.host if request.client else None,
+        },
+    )
 
     return response

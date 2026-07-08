@@ -99,6 +99,27 @@ README.md
   `Depends()`-injected calls during request handling — a ping inside `lifespan` would bypass the
   test suite's mocked DB and hang against the default `mongodb://localhost:27017` (~30s Motor
   server-selection timeout) once per test.
+- **Structured logging (`app/core/logging_config.py`)**: JSON log lines to stdout, shipped to
+  CloudWatch via the same `awslogs` pipeline every container already uses — the original request
+  asked to "log each and everything... inside CloudWatch," but until this was added the entire
+  backend had exactly two `logger.` calls total (an LLM-failure and an extraction-failure
+  exception handler); everything else was gunicorn's bare access log with no user identity. Now:
+  every request gets a structured "request completed" log (method/route/status/duration_ms,
+  plus `user_id` resolved best-effort from the access-token cookie — see
+  `app/main.py`'s `observability_middleware`, which emits this alongside the existing metrics
+  call), and every user-facing action gets its own event log with context: signup/login/logout
+  (`app/routers/auth.py`), conversation create/delete (`conversations.py`), chat message sent and
+  LLM-call failure (`messages.py`), file upload/download (`files.py`). Hand-rolled JSON formatter
+  rather than a third-party dependency (the format is simple enough not to need one — contrast
+  with `app/core/metrics.py`'s EMF choice, where the wire format genuinely is fiddly enough to
+  warrant the official library). One real gotcha hit while building this: `filename` is a
+  reserved `logging.LogRecord` attribute name — passing it via `extra={"filename": ...}` raises
+  `KeyError` at the `logger.info()` call site, not at format time; renamed to `uploaded_filename`
+  in `files.py`'s log calls once this surfaced via a real test failure.
+  ALB *access* logs (per-request client-IP/latency records) were considered as a companion to
+  this but deliberately not built — they land in S3, not CloudWatch (AWS offers no CloudWatch
+  Logs destination for that specific feature), which doesn't match the literal "inside CloudWatch"
+  ask this section is responding to.
 
 ## Frontend (Next.js)
 

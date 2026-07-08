@@ -124,6 +124,16 @@ async def create_message(
     async def event_stream():
         yield _sse_event("user_message", user_message)
         await metrics.record_chat_message()
+        logger.info(
+            "chat message sent",
+            extra={
+                "event": "message_sent",
+                "user_id": current_user.id,
+                "conversation_id": conversation_id,
+                "message_id": str(user_doc["_id"]),
+                "attachment_count": len(file_docs),
+            },
+        )
 
         model = settings.openai_model
         usage: dict = {}
@@ -144,7 +154,16 @@ async def create_message(
                 total_tokens=usage.get("total_tokens"),
             )
         except Exception as exc:
-            logger.exception("LLM call failed for conversation %s", conversation_id)
+            logger.exception(
+                "LLM call failed for conversation %s",
+                conversation_id,
+                extra={
+                    "event": "llm_call_failed",
+                    "user_id": current_user.id,
+                    "conversation_id": conversation_id,
+                    "model": model,
+                },
+            )
             collected = collected or LLM_ERROR_FALLBACK
             await metrics.record_llm_call(
                 model, (time.perf_counter() - llm_start) * 1000, success=False

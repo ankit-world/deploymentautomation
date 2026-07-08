@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -9,6 +10,8 @@ from app.core.serialization import serialize_doc
 from app.dependencies import get_current_user
 from app.models.conversation import ConversationCreate, ConversationOut, ConversationRename
 from app.models.user import UserOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -42,6 +45,14 @@ async def create_conversation(
     }
     result = await db.conversations.insert_one(doc)
     doc["_id"] = result.inserted_id
+    logger.info(
+        "conversation created",
+        extra={
+            "event": "conversation_created",
+            "user_id": current_user.id,
+            "conversation_id": str(result.inserted_id),
+        },
+    )
     return ConversationOut(**serialize_doc(doc))
 
 
@@ -81,3 +92,11 @@ async def delete_conversation(
 
     await db.conversations.delete_one({"_id": ObjectId(conversation_id)})
     await db.messages.delete_many({"conversation_id": conversation_id})
+    logger.info(
+        "conversation deleted",
+        extra={
+            "event": "conversation_deleted",
+            "user_id": current_user.id,
+            "conversation_id": conversation_id,
+        },
+    )
