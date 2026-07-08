@@ -2,9 +2,11 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from redis.asyncio import Redis
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.redis_client import get_redis
 from app.core.security import (
     REFRESH_TOKEN_TYPE,
     InvalidTokenError,
@@ -15,6 +17,7 @@ from app.core.security import (
     verify_password,
 )
 from app.core.serialization import serialize_doc
+from app.core.token_blacklist import blacklist_refresh_token, is_refresh_token_blacklisted
 from app.dependencies import get_current_user
 from app.models.user import UserLogin, UserOut, UserSignup
 
@@ -84,7 +87,9 @@ async def login(
 
 @router.post("/refresh", status_code=status.HTTP_204_NO_CONTENT)
 async def refresh(
-    response: Response, refresh_token: str | None = Cookie(default=None)
+    response: Response,
+    refresh_token: str | None = Cookie(default=None),
+    redis: Redis = Depends(get_redis),
 ) -> None:
     if refresh_token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
@@ -93,6 +98,9 @@ async def refresh(
         user_id = decode_token(refresh_token, REFRESH_TOKEN_TYPE)
     except InvalidTokenError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token") from exc
+
+    if await is_refresh_token_blacklisted(redis, refresh_token):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
 
     new_access_token = create_access_token(user_id)
     response.set_cookie(
@@ -106,10 +114,19 @@ async def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response) -> None:
-    # Cookie-clear-only logout. Tokens remain cryptographically valid until they expire on
-    # their own (short-lived access token) — real server-side revocation via a Redis
-    # blacklist lands once Redis is wired up in a later session (see docs/ARCHITECTURE.md).
+async def logout(
+    response: Response,
+    refresh_token: str | None = Cookie(default=None),
+    redis: Redis = Depends(get_redis),
+) -> None:
+    # Session 09: real server-side revocation, not just a cookie clear — the refresh token is
+    # recorded in Redis so a copy of it (e.g. sniffed before logout, or replayed from a stale
+    # client) can no longer be used at POST /auth/refresh, until it expires naturally either way.
+    # The short-lived access token is still only revoked by cookie-clear + its own expiry (15 min
+    # default) — blacklisting it too would mean an extra Redis round trip on every authenticated
+    # request; not worth it for a token that short-lived.
+    if refresh_token is not None:
+        await blacklist_refresh_token(redis, refresh_token)
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token", path="/auth")
 

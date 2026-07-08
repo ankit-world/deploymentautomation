@@ -55,3 +55,29 @@ def decode_token(token: str, expected_type: str) -> str:
         raise InvalidTokenError(f"expected token type {expected_type!r}")
 
     return payload["sub"]
+
+
+def token_ttl_seconds(token: str) -> int | None:
+    """Remaining seconds until a token's `exp` claim, or None if it's invalid/already expired.
+
+    Used by `app.core.token_blacklist` (session 09) to size the Redis blacklist entry's TTL on
+    logout: a bare JWT can't be un-issued, but it does expire on its own, so the blacklist entry
+    only needs to outlive the token itself, not forever. Signature is still verified (only
+    `verify_exp` is skipped) so this can't be used to forge a TTL for a tampered token.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": False},
+        )
+    except jwt.PyJWTError:
+        return None
+
+    exp = payload.get("exp")
+    if exp is None:
+        return None
+
+    remaining = int(exp - datetime.now(timezone.utc).timestamp())
+    return remaining if remaining > 0 else None

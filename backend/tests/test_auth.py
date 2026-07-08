@@ -58,3 +58,21 @@ def test_refresh_issues_new_access_token(client):
     refresh_resp = client.post("/auth/refresh")
     assert refresh_resp.status_code == 204
     assert client.get("/auth/me").status_code == 200
+
+
+def test_logout_blacklists_refresh_token(client):
+    """Session 09: logout must actually revoke the refresh token via the Redis blacklist, not
+    just clear cookies — a copy of the old refresh token replayed after logout must be rejected
+    by POST /auth/refresh. This is the exact check re-run live against ElastiCache in prod."""
+    client.post(
+        "/auth/signup",
+        json={"email": "frank@example.com", "password": "hunter22", "name": "Frank"},
+    )
+    old_refresh_token = client.cookies["refresh_token"]
+
+    assert client.post("/auth/logout").status_code == 204
+
+    # Replay the pre-logout refresh token directly (bypassing the now-cleared cookie jar) —
+    # this is the scenario a bare-JWT-only logout can't defend against.
+    replay_resp = client.post("/auth/refresh", cookies={"refresh_token": old_refresh_token})
+    assert replay_resp.status_code == 401
