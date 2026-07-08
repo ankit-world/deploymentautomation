@@ -262,13 +262,57 @@ README.md
   HTTP on the ALB's own `*.elb.amazonaws.com` DNS name — acceptable for early iteration, not
   for real user traffic with credentials, so treat pre-session-12 deployments as staging-only.
 
-## CI/CD (session 11)
+## CI/CD (session 11, live)
 
-- GitHub Actions, triggered on push/merge to `main`.
-- Jobs: lint + test (both frontend and backend) → build Docker images → push to ECR → update ECS
-  task definitions (new image tag) → `aws ecs update-service --force-new-deployment`.
-- AWS auth via GitHub's OIDC provider assuming a scoped IAM role — no long-lived AWS access keys
-  stored as GitHub secrets.
+- Two workflows, both in `.github/workflows/`:
+  - `ci.yml` — on every pull request: backend tests (`pytest`, Python 3.12, no AWS/DB
+    credentials needed — the test suite runs entirely against `mongomock-motor`/`fakeredis`, see
+    `backend/tests/conftest.py`) and frontend lint + build (`npm run lint`, `npm run build`, Node
+    22). No AWS credentials configured in this workflow at all — the deploy role's OIDC trust
+    policy only allows assumption from pushes to `main` anyway, so a PR-triggered run couldn't
+    assume it even if it tried.
+  - `deploy.yml` — on every push to `main`: builds and pushes all three Docker images (backend,
+    frontend, grafana) to ECR tagged with the commit SHA, then for each service: fetches the
+    current task definition (`aws ecs describe-task-definition`), patches only that container's
+    `image` field via `jq`, strips the fields `register-task-definition` rejects
+    (`taskDefinitionArn`/`revision`/`status`/`requiresAttributes`/`compatibilities`/
+    `registeredAt`/`registeredBy`), registers the new revision, and force-deploys it
+    (`aws ecs update-service --force-new-deployment`). Waits for all three services to stabilize,
+    then curls `/health`, `/login`, `/grafana/api/health` on the live ALB DNS name as a final
+    smoke test. This is the exact fetch→patch→register→force-deploy→wait pattern sessions 08-10's
+    `07-task-defs.sh`/`08-ecs-services.sh`/`09b-redis-deploy.sh`/`10-grafana-ecs.sh` established
+    manually — session 11 just automates it.
+- AWS auth via GitHub's OIDC provider (`aws-actions/configure-aws-credentials`) assuming
+  `chatapp-github-deploy` (session 06) — no long-lived AWS access keys stored as GitHub secrets.
+  `permissions: id-token: write` + `contents: read` set at the workflow level (required for OIDC
+  role assumption to work at all — silently fails as a runtime permissions error otherwise, not a
+  workflow-syntax error). The role's existing scope (ECR push to `chatapp-*` repos; ECS
+  `DescribeServices`/`DescribeTaskDefinition`/`RegisterTaskDefinition`/`UpdateService`;
+  `iam:PassRole` scoped to `chatapp-*` roles) needed no changes — verified sufficient on the first
+  real run.
+- Resource identifiers the workflow needs (account id, ECR registry, cluster/family/service names,
+  ALB DNS name) are hardcoded as workflow-level `env:` in `deploy.yml`, copied from
+  `infra/aws-cli-scripts/.env.aws` (gitignored, so unavailable to the Actions runner) — none of
+  these are secrets, they're the same resource identifiers already visible in every
+  `infra/aws-cli-scripts/*.sh` script.
+- **Verified live (2026-07-08)**: the commit that added `deploy.yml` triggered a real deployment
+  end to end — all three services moved to new task-definition revisions
+  (`chatapp-backend:2→3`, `chatapp-frontend:1→2`, `chatapp-grafana:2→3`), all three running images
+  tagged with that commit's SHA, `runningCount == desiredCount == 1` for all three, ALB health
+  checks (`/health`, `/login`, `/grafana/api/health`) all `200` post-deploy, and a real signup +
+  LLM chat message round-tripped successfully through the freshly redeployed backend (test data
+  cleaned up from Atlas afterward, same pattern as sessions 01/02/08/09).
+- **Known gap**: `ci.yml`'s failure behavior was verified by pushing a deliberately broken test to
+  a throwaway branch (`ci-broken-test`) and confirming `pytest` fails on it (`1 failed, 36
+  passed`) — the exact command the CI job runs — but an actual GitHub Pull Request object was
+  never opened to prove the `pull_request`-triggered workflow run itself goes red, because doing
+  so needs a write-scoped GitHub API call and this machine has no `gh` CLI installed/authenticated
+  and no `GITHUB_TOKEN`; extracting the git-credential-manager token cached for `git push` to use
+  for that API call was (correctly) refused as credential exfiltration outside its intended git-only
+  use. The throwaway branch was pushed, then deleted (both remote and local) without merging,
+  consistent with the done-criteria's spirit even though the literal PR object was never created.
+  If this matters for a future session, install/authenticate the `gh` CLI once
+  (`gh auth login`) so this check can be closed properly.
 
 ## Local development
 
