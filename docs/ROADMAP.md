@@ -29,7 +29,7 @@ sequentially.
 - [x] 07 — AWS networking + ECR (VPC, subnets, NAT, security groups, ECR repos)
 - [x] 08 — AWS compute + ALB (ECS cluster, task defs, services, load balancer, Secrets Manager)
 - [x] 09 — ElastiCache + CloudWatch (Redis, log groups, Container Insights, alarms)
-- [ ] 10 — Grafana on Fargate (config-as-code dashboards over CloudWatch)
+- [x] 10 — Grafana on Fargate (config-as-code dashboards over CloudWatch)
 - [ ] 11 — CI/CD via GitHub Actions (OIDC, build/push/deploy pipeline)
 - [ ] 12 — HTTPS/custom domain (deferred until a domain is available)
 

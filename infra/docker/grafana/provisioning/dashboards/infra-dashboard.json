@@ -1,0 +1,331 @@
+{
+  "uid": "chatapp-infra",
+  "title": "chatapp — Infra (ECS / ALB / ElastiCache)",
+  "description": "Provisioned as code (infra/docker/grafana/provisioning/dashboards/infra-dashboard.json, session 10). ECS/ALB panels are backed by default AWS metrics and should show data as soon as this dashboard loads. ElastiCache and Container-Insights-level panels are backed by resources/metrics that session 09 creates and will show 'No data' until that session lands — that is expected, not a bug (see docs/sessions/10-grafana-fargate.md Prerequisites).",
+  "tags": ["chatapp", "infra"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "1m",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "ECS",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "ECS CPUUtilization by service (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "backend",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-backend" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "frontend",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-frontend" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "grafana",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-grafana" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "ECS MemoryUtilization by service (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "backend",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ECS",
+          "metricName": "MemoryUtilization",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-backend" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "frontend",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ECS",
+          "metricName": "MemoryUtilization",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-frontend" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "grafana",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ECS",
+          "metricName": "MemoryUtilization",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-grafana" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "ALB (chatapp-alb)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "ALB RequestCount",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "RequestCount",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "app/chatapp-alb/fafec61a6379dca0" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "ALB TargetResponseTime (latency, avg seconds)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "statistic": "Average",
+          "dimensions": { "LoadBalancer": "app/chatapp-alb/fafec61a6379dca0" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "ALB HTTPCode_Target_5XX_Count (5xx rate)",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": { "LoadBalancer": "app/chatapp-alb/fafec61a6379dca0" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "ElastiCache (session 09 — no data until that session's Redis node exists)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "ElastiCache CPUUtilization (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ElastiCache",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": { "CacheClusterId": "chatapp-redis" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "ElastiCache CurrConnections",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "AWS/ElastiCache",
+          "metricName": "CurrConnections",
+          "statistic": "Average",
+          "dimensions": { "CacheClusterId": "chatapp-redis" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Container Insights (session 09 — no data until Container Insights is enabled on chatapp-cluster)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Container CpuUtilized (backend task, Container Insights)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "CpuUtilized",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-backend" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Container MemoryUtilized (backend task, Container Insights)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "MemoryUtilized",
+          "statistic": "Average",
+          "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-backend" },
+          "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    }
+  ]
+}
