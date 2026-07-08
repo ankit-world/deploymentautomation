@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,6 +11,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.core import metrics
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.rate_limit import enforce_chat_rate_limit
 from app.core.serialization import serialize_doc
@@ -120,15 +123,32 @@ async def create_message(
 
     async def event_stream():
         yield _sse_event("user_message", user_message)
+        await metrics.record_chat_message()
 
+        model = settings.openai_model
+        usage: dict = {}
         collected = ""
+        llm_start = time.perf_counter()
         try:
-            async for delta in llm.stream_chat_completion(llm_messages):
+            async for delta in llm.stream_chat_completion(
+                llm_messages, on_usage=usage.update
+            ):
                 collected += delta
                 yield _sse_event("token", {"content": delta})
+            await metrics.record_llm_call(
+                model,
+                (time.perf_counter() - llm_start) * 1000,
+                success=True,
+                prompt_tokens=usage.get("prompt_tokens"),
+                completion_tokens=usage.get("completion_tokens"),
+                total_tokens=usage.get("total_tokens"),
+            )
         except Exception as exc:
             logger.exception("LLM call failed for conversation %s", conversation_id)
             collected = collected or LLM_ERROR_FALLBACK
+            await metrics.record_llm_call(
+                model, (time.perf_counter() - llm_start) * 1000, success=False
+            )
             yield _sse_event("error", {"detail": str(exc)})
 
         assistant_doc = {

@@ -24,7 +24,7 @@ user's question, rather than chunked/embedded/retrieved.
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 from openai import AsyncOpenAI
 
@@ -93,15 +93,36 @@ def build_user_message(content: str, attachments: list[dict]) -> dict:
 
 
 async def stream_chat_completion(
-    messages: list[dict], model: str | None = None
+    messages: list[dict],
+    model: str | None = None,
+    on_usage: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[str]:
-    """Yields incremental text deltas from the chat completion, token-by-token."""
+    """Yields incremental text deltas from the chat completion, token-by-token.
+
+    `on_usage`: optional callback invoked with `{"prompt_tokens", "completion_tokens",
+    "total_tokens"}` once, if/when a usage-carrying chunk arrives — used by
+    app/routers/messages.py to record LLM token metrics (see app/core/metrics.py). Requesting
+    `stream_options={"include_usage": True}` is confirmed to work against the Euri/Euron gateway
+    (verified live 2026-07-08: real prompt/completion/total token counts returned on the final
+    chunk, same shape as real OpenAI) — not assumed, since this gateway has diverged from vanilla
+    OpenAI behavior before in other ways (see this module's docstring above).
+    """
     stream = await _client.chat.completions.create(
         model=model or settings.openai_model,
         messages=messages,
         stream=True,
+        stream_options={"include_usage": True},
     )
     async for chunk in stream:
+        usage = getattr(chunk, "usage", None)
+        if usage is not None and on_usage is not None:
+            on_usage(
+                {
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens,
+                }
+            )
         if not chunk.choices:
             continue
         delta = chunk.choices[0].delta.content

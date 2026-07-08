@@ -1,8 +1,8 @@
 {
   "uid": "chatapp-infra",
-  "title": "chatapp — Infra (ECS / ALB / ElastiCache)",
-  "description": "Provisioned as code (infra/docker/grafana/provisioning/dashboards/infra-dashboard.json, session 10). ECS/ALB panels are backed by default AWS metrics and should show data as soon as this dashboard loads. ElastiCache and Container-Insights-level panels are backed by resources/metrics that session 09 creates and will show 'No data' until that session lands — that is expected, not a bug (see docs/sessions/10-grafana-fargate.md Prerequisites).",
-  "tags": ["chatapp", "infra"],
+  "title": "chatapp — Infra + Application (ECS / ALB / ElastiCache / ChatApp metrics)",
+  "description": "Provisioned as code (infra/docker/grafana/provisioning/dashboards/infra-dashboard.json, session 10; Application row added as a follow-up). ECS/ALB panels are backed by default AWS metrics and should show data as soon as this dashboard loads, as do ElastiCache/Container-Insights (session 09 landed). The Application row reads the 'ChatApp' CloudWatch namespace, populated via Embedded Metric Format log lines from the backend (see backend/app/core/metrics.py) — request rate/duration/errors, LLM call duration/count/token-usage by model, chat messages sent, file uploads by kind.",
+  "tags": ["chatapp", "infra", "application"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
@@ -319,6 +319,236 @@
           "statistic": "Average",
           "dimensions": { "ClusterName": "chatapp-cluster", "ServiceName": "chatapp-backend" },
           "matchExact": true,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "row",
+      "title": "Application (ChatApp namespace — request/LLM/chat/upload metrics via EMF, see app/core/metrics.py)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Request rate + errors",
+      "description": "matchExact: false throughout this row — EMF's default dimension set (LogGroup/ServiceName/ServiceType) isn't hardcoded here on purpose, so this keeps working if that ever changes.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "requests",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "RequestCount",
+          "statistic": "Sum",
+          "dimensions": {},
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "client_errors",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "ClientErrorCount",
+          "statistic": "Sum",
+          "dimensions": {},
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "server_errors",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "ServerErrorCount",
+          "statistic": "Sum",
+          "dimensions": {},
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Request duration (avg ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "RequestDuration",
+          "statistic": "Average",
+          "dimensions": {},
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "LLM call duration by model (avg ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "LlmCallDuration",
+          "statistic": "Average",
+          "dimensions": { "Model": "*" },
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "LLM calls by model + success",
+      "description": "Success is a real dimension (\"true\"/\"false\" string), not just a log property — so a spike in failed calls shows up as its own series here, not just in Logs Insights.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "LlmCallCount",
+          "statistic": "Sum",
+          "dimensions": { "Model": "*", "Success": "*" },
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "LLM token usage by model",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 53 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "prompt",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "LlmPromptTokens",
+          "statistic": "Sum",
+          "dimensions": { "Model": "*" },
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        },
+        {
+          "refId": "completion",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "LlmCompletionTokens",
+          "statistic": "Sum",
+          "dimensions": { "Model": "*" },
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Chat messages sent",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 53 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "ChatMessagesSent",
+          "statistic": "Sum",
+          "dimensions": {},
+          "matchExact": false,
+          "period": "",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "queryMode": "Metrics",
+          "sqlExpression": ""
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "File uploads by kind",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 53 },
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "region": "us-east-1",
+          "namespace": "ChatApp",
+          "metricName": "FileUploadCount",
+          "statistic": "Sum",
+          "dimensions": { "Kind": "*" },
+          "matchExact": false,
           "period": "",
           "metricQueryType": 0,
           "metricEditorMode": 0,

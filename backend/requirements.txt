@@ -25,6 +25,11 @@ openpyxl>=3.1
 # (session 08 wires it up for real; not exercised until then).
 boto3>=1.35
 
+# Application-level metrics via CloudWatch Embedded Metric Format (EMF) — see
+# app/core/metrics.py. Distinct from the infra-level metrics (ECS/ALB/ElastiCache) sessions
+# 09-10 already cover via Container Insights + Grafana; this is request/LLM/chat/upload metrics.
+aws-embedded-metrics>=3.2
+
 # Redis-backed rate limiting (session 02). `redis` is the real async client used once
 # REDIS_URL is set (ElastiCache in prod, session 09); `fakeredis` is the in-memory dev
 # substitute used automatically when REDIS_URL is unset — see app/core/redis_client.py.

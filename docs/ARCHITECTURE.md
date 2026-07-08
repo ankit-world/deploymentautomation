@@ -267,6 +267,26 @@ README.md
   Container Insights, should be populating too (dimensions worth a quick spot-check next time
   the dashboard is opened — see `docs/sessions/10-grafana-fargate.md`'s note about the
   `CacheClusterId` dimension being a placeholder guess made before session 09's node existed).
+  A fourth row, "Application", was added as a follow-up (not part of sessions 09/10's original
+  scope — see `app/core/metrics.py` below): request rate/duration/errors, LLM call
+  duration/count/success-rate by model, LLM token usage, chat messages sent, file uploads by
+  kind, all reading the `ChatApp` CloudWatch namespace.
+- **Application metrics (`app/core/metrics.py`)**: request/LLM/chat-message/file-upload metrics
+  via CloudWatch Embedded Metric Format (EMF) — distinct from everything above, which describes
+  the *containers* (CPU/memory/ALB/cache), not the *application*. A `MetricsLogger` writes a
+  specially-shaped JSON line to stdout per call; CloudWatch automatically extracts real metrics
+  from it via the same `awslogs` log driver every container already uses — no separate metrics
+  API client, no background flush task, no flush-on-shutdown race. `AWS_EMF_ENVIRONMENT` is
+  forced to `"local"` in code (not left to auto-detection, which tries an EC2-metadata probe
+  Fargate blocks) since stdout is always the right sink here — confirmed necessary by a real
+  test failure during development (metrics silently dropped trying to reach a nonexistent
+  CloudWatch agent socket without it). `Success` on LLM-call metrics is a real dimension
+  (`"true"`/`"false"` string), not just a log property, so failure rate is directly chartable.
+  Wired into the request-metrics middleware (`app/main.py`, skips `/health` — ALB polling noise,
+  not application traffic) and instrumented directly in `messages.py` (chat message count, LLM
+  call duration/tokens — more accurate than the generic request-duration metric for the
+  streaming chat endpoint, since `StreamingResponse` returns before its generator actually runs)
+  and `files.py` (upload count/size by kind).
 - **HTTPS/domain**: intentionally deferred (session 12). Until then everything is served over
   HTTP on the ALB's own `*.elb.amazonaws.com` DNS name — acceptable for early iteration, not
   for real user traffic with credentials, so treat pre-session-12 deployments as staging-only.

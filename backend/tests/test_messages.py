@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 from app.core.config import settings
 from app.services import llm
 
@@ -36,18 +34,7 @@ def parse_sse(text: str) -> list[tuple[str, dict]]:
     return events
 
 
-@pytest.fixture()
-def mock_llm_stream(monkeypatch):
-    """Replaces the real LLM call with a deterministic fake, so tests never hit the network."""
-    captured_messages = {}
-
-    async def fake_stream(messages, model=None):
-        captured_messages["messages"] = messages
-        for token in ["Hello", ", ", "world", "!"]:
-            yield token
-
-    monkeypatch.setattr(llm, "stream_chat_completion", fake_stream)
-    return captured_messages
+# mock_llm_stream fixture now lives in conftest.py (shared with test_metrics.py).
 
 
 def test_post_message_streams_sse_and_persists_both_messages(client, mock_llm_stream):
@@ -117,7 +104,7 @@ def test_llm_error_is_reported_and_falls_back_to_stored_message(client, monkeypa
     _signup(client, email="karl@example.com")
     conversation = _create_conversation(client)
 
-    async def failing_stream(messages, model=None):
+    async def failing_stream(messages, model=None, on_usage=None):
         raise RuntimeError("gateway exploded")
         yield  # pragma: no cover - makes this an async generator
 

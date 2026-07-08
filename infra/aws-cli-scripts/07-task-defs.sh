@@ -155,7 +155,8 @@ BACKEND_CONTAINER_DEFS="$(cat <<JSON
       {"name": "FRONTEND_ORIGIN", "value": "${FRONTEND_ORIGIN}"},
       {"name": "S3_BUCKET", "value": "${S3_BUCKET}"},
       {"name": "AWS_REGION", "value": "${AWS_REGION}"},
-      {"name": "MONGODB_DB_NAME", "value": "chatapp"}
+      {"name": "MONGODB_DB_NAME", "value": "chatapp"},
+      {"name": "AWS_EMF_SERVICE_NAME", "value": "chatapp-backend"}
     ],
     "secrets": [
       {"name": "MONGODB_URI", "valueFrom": "${MONGODB_URI_ARN}"},

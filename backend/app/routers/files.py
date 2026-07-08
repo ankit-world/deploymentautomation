@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.core import metrics
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.serialization import serialize_doc
@@ -84,6 +85,7 @@ async def upload_file(
     }
     result = await db.files.insert_one(doc)
     doc["_id"] = result.inserted_id
+    await metrics.record_file_upload(kind, len(data))
 
     preview = (extracted_text[:PREVIEW_CHARS] if extracted_text else None) or None
     return FileOut(**serialize_doc(doc), extracted_text_preview=preview)
