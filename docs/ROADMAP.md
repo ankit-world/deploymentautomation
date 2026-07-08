@@ -33,6 +33,20 @@ sequentially.
 - [x] 11 — CI/CD via GitHub Actions (OIDC, build/push/deploy pipeline)
 - [ ] 12 — HTTPS/custom domain (deferred until a domain is available)
 
+## Post-roadmap follow-ups
+
+Work outside the original 12-session structure, addressing gaps found after the fact rather than
+scheduled sessions:
+
+- **Application-level metrics** (2026-07-08) — the original request asked for metrics "with
+  respect to an application and with respect to a server"; sessions 09/10 only built the server
+  half (ECS/ALB/ElastiCache via CloudWatch+Grafana). Added request/LLM/chat-message/file-upload
+  metrics via CloudWatch EMF, wired into the same Grafana dashboard as a new "Application" row.
+  See `docs/ARCHITECTURE.md`'s "Application metrics" entry and `backend/app/core/metrics.py`.
+- **FastAPI lifespan** (2026-07-08) — `app/main.py` never had one; added graceful Mongo/Redis
+  shutdown and explicit (not import-time-side-effect) connection setup. See `docs/ARCHITECTURE.md`'s
+  Backend section, "Lifespan" entry.
+
 ## Dependency order
 
 ```
