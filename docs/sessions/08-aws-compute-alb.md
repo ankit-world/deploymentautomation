@@ -1,5 +1,63 @@
 # Session 08 — AWS Compute + ALB
 
+**Status**: done (2026-07-08), run interactively with the user. **The app is live**:
+`http://chatapp-alb-811403579.us-east-1.elb.amazonaws.com`.
+
+**What was built**, all via idempotent scripts in `infra/aws-cli-scripts/`:
+- `04-secrets.sh` — 4 secrets in Secrets Manager (`chatapp/mongodb-uri`, `chatapp/jwt-secret`,
+  `chatapp/openai-api-key`, `chatapp/openai-base-url`), values read from `backend/.env` at
+  runtime (never hardcoded in the script).
+- `04b-s3-bucket.sh` — private bucket `chatapp-uploads-788070448326-us-east-1`, all public access
+  blocked, default SSE-S3 encryption.
+- `05-ecs-cluster.sh` — Fargate cluster `chatapp-cluster` (Container Insights deliberately off,
+  that's session 09).
+- `06-alb.sh` — ALB `chatapp-alb` in the public subnets, two target groups (frontend :3000
+  health-check `/login`, backend :8000 health-check `/health`), one listener on :80 with a
+  priority-10 path-pattern rule (`/auth*`, `/conversations*`, `/health`, `/docs`, `/openapi.json`
+  → backend) and a default action → frontend.
+- `07-task-defs.sh` — execution role `chatapp-ecs-execution-role` (ECR pull, CloudWatch logs,
+  `secretsmanager:GetSecretValue` scoped to the 4 secret ARNs) and task role
+  `chatapp-ecs-task-role` (backend only: S3 get/put/delete scoped to the bucket ARN); log groups
+  `/ecs/chatapp-backend` and `/ecs/chatapp-frontend`; both task definitions (256 CPU/512MB each —
+  Fargate's smallest valid size, deliberate cost control). Backend's container `command` is
+  overridden to `gunicorn -k uvicorn.workers.UvicornWorker -w 2` per the Dockerfile's own
+  deferred-to-session-08 comment.
+- Manual build+push of both images tagged `manual-1` — backend first (no ALB dependency), then
+  frontend with `--build-arg NEXT_PUBLIC_API_URL=http://chatapp-alb-811403579.us-east-1.elb.amazonaws.com`.
+  Confirmed the URL was actually inlined into the built bundle (`docker cp` + `grep` the static
+  chunks) before pushing, same check session 05 used.
+- `08-ecs-services.sh` — both ECS services, desired count 1, placed in the *private* subnets
+  (`chatapp-ecs-sg`), `assignPublicIp: DISABLED` — only the ALB is internet-facing.
+
+**Two real bugs hit and fixed during this session:**
+1. **MSYS2/Git-Bash path mangling.** `aws elbv2 create-target-group --health-check-path /login`
+   got silently rewritten to a Windows path (`C:/Program Files/Git/login`) by Git Bash before the
+   AWS CLI ever saw it, causing `ValidationError`s on target-group and listener-rule creation
+   (the ALB itself was already created and unaffected, being resource-id-based). Fixed with
+   `export MSYS_NO_PATHCONV=1` at the top of every script with a leading-`/` argument — see
+   `06-alb.sh`'s and `08-ecs-services.sh`'s header comments. Worth remembering for any future
+   script with S3 keys, URL paths, or similar leading-slash values on Windows.
+2. **Not a bug, but a verification trap**: the live download smoke-test initially looked broken
+   (downloaded file hashed to the empty-file SHA256) — actually just `curl` missing `-L`. The
+   backend correctly returns a `307` to a presigned S3 URL
+   (`S3Storage.download_url`); `curl -L` follows it and the bytes matched the original exactly.
+   Recorded here because it looked alarming enough to be worth a note for whoever debugs this
+   flow next.
+
+**Live verification performed**, against the real public ALB URL (not a tunnel/localhost):
+- `aws elbv2 describe-target-health` — both target groups `healthy`.
+- `GET /health` → `{"status":"ok"}`; `GET /login` → `200`; `GET /` (no cookie) → `307` to
+  `/login` (route gate works in prod too); `GET /docs` → `200` (path-pattern rule correctly
+  routes backend paths through the same ALB hostname the frontend uses).
+- Full signup → `GET /auth/me` → create conversation → post a message and captured the real SSE
+  stream: token-by-token `"The"` `" capital"` `" of"` `" France"` `" is"` `" Paris"` `"."` then
+  `event: done` — a genuine live LLM call from the Fargate backend, through the NAT Gateway, to
+  the Euri/Euron gateway (proves outbound internet egress works end-to-end, not just to Atlas).
+- File upload → confirmed present in the real S3 bucket via `aws s3 ls` → download (following the
+  redirect) → sha256 identical to the original upload.
+- Cleanup: deleted the test object from S3, deleted the test user/conversation/messages/file-
+  metadata from Atlas (1 user, 1 conversation, 2 messages, 1 file doc).
+
 ## Goal
 
 Get the frontend and backend actually running in production on ECS Fargate behind the ALB, using

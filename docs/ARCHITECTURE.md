@@ -171,25 +171,46 @@ README.md
   (6379 from the ECS SG only) — nothing but the ALB is reachable from the open internet. All
   resource IDs in `infra/aws-cli-scripts/.env.aws` (gitignored); provisioned by
   `infra/aws-cli-scripts/01-vpc.sh` and `02-security-groups.sh`.
-- **ALB**: sits in the public subnets. Path-based routing:
-  - `/` → frontend ECS service
-  - `/api/*` → backend ECS service
-  - `/grafana/*` → grafana ECS service
-- **ECS**: one Fargate cluster, three services (frontend, backend, grafana), each with its own
-  task definition and ECR repository. Fargate = no EC2 instances to manage.
+- **ALB (session 08, live)**: `chatapp-alb`, public subnets, DNS name
+  `chatapp-alb-811403579.us-east-1.elb.amazonaws.com` — **the app is live at
+  `http://` + that hostname**. Path-based routing on the one listener (:80): a priority-10 rule
+  matching the backend's *actual* route prefixes (`/auth*`, `/conversations*`, `/health`, `/docs`,
+  `/openapi.json` — NOT `/api/*`, which nothing serves; the backend has no `/api` prefix, see
+  `docs/sessions/08-aws-compute-alb.md` correction #1) forwards to the backend target group;
+  everything else (default action) forwards to the frontend target group. One ALB hostname,
+  shared by both apps — `NEXT_PUBLIC_API_URL` (frontend build-arg) and `FRONTEND_ORIGIN` (backend
+  CORS) are both this same DNS name. `/grafana/*` routing is added in session 10. Target-group
+  health checks: backend `/health`, frontend `/login` (not `/`, which 307-redirects unauthenticated
+  requests and would fail ALB's default 200-only matcher).
+- **ECS (session 08, live)**: Fargate cluster `chatapp-cluster`, two services so far
+  (`chatapp-backend`, `chatapp-frontend`; grafana is session 10), desired count 1 each, placed in
+  the *private* subnets (`chatapp-ecs-sg`, no public IP — only reachable via the ALB), 256 CPU /
+  512MB task size each (Fargate's smallest valid size, deliberate cost control). Execution role
+  `chatapp-ecs-execution-role` (ECR pull, CloudWatch logs, reads the 4 Secrets Manager secrets);
+  task role `chatapp-ecs-task-role` (backend only, S3 access). Backend's container command is
+  overridden to `gunicorn -k uvicorn.workers.UvicornWorker -w 2` (not the Dockerfile's default
+  plain `uvicorn`, which stays as-is for local/docker-compose use). First deploy was a manual
+  `docker build`/`push`/`create-service` (image tag `manual-1`); session 11 automates this.
 - **ECR (session 07, live)**: `chatapp-frontend`, `chatapp-backend`, `chatapp-grafana`
   (`788070448326.dkr.ecr.us-east-1.amazonaws.com/chatapp-*`, scan-on-push enabled), provisioned by
-  `infra/aws-cli-scripts/03-ecr.sh`, currently empty (a connectivity test image was pushed and
-  removed during session 07's verification). GitHub Actions builds and pushes real images here on
-  merge to `main` starting session 11; session 08 does the first manual push.
+  `infra/aws-cli-scripts/03-ecr.sh`. `chatapp-frontend`/`chatapp-backend` now hold the real
+  `manual-1` images running in production; `chatapp-grafana` stays empty until session 10.
+- **S3 (session 08, live)**: private bucket `chatapp-uploads-788070448326-us-east-1` (all public
+  access blocked, default SSE-S3 encryption) replaces local-disk file storage in production —
+  Fargate containers have no persistent/shared disk, so this isn't optional (see
+  `docs/sessions/08-aws-compute-alb.md` correction #2). `backend/app/services/storage.py`'s
+  `S3Storage` (built in session 02 specifically for this) generates presigned URLs for downloads;
+  the backend redirects to them (`307`) rather than proxying bytes itself.
 - **ElastiCache**: Redis, single node to start, in a private subnet, security-group-restricted to
-  the backend service only.
-- **Secrets Manager**: holds `OPENAI_API_KEY`, `MONGODB_URI`, `JWT_SECRET`; referenced by ARN in
-  the backend task definition so secrets never appear in the image, task def JSON in git, or
-  GitHub Actions logs.
-- **CloudWatch**: one log group per service (`/ecs/<service-name>`), Container Insights enabled
-  on the cluster for CPU/memory/network dashboards, a handful of baseline alarms (task count
-  drop, high CPU/mem, ALB 5xx rate).
+  the backend service only. Not live yet — session 09.
+- **Secrets Manager (session 08, live)**: `chatapp/mongodb-uri`, `chatapp/jwt-secret`,
+  `chatapp/openai-api-key`, `chatapp/openai-base-url` — four, not three; `OPENAI_BASE_URL` is
+  required too since this project uses a non-OpenAI gateway. Referenced by ARN in the backend
+  task definition (`infra/aws-cli-scripts/07-task-defs.sh`) so secrets never appear in the image,
+  task def JSON in git, or GitHub Actions logs. `FRONTEND_ORIGIN`/`S3_BUCKET`/`AWS_REGION` are
+  plain (non-secret) task-definition environment entries, not Secrets Manager entries.
+- **CloudWatch (partial)**: log groups `/ecs/chatapp-backend`/`/ecs/chatapp-frontend` exist and
+  are receiving real logs (session 08). Container Insights and alarms are session 09.
 - **Grafana**: self-hosted on Fargate, not Amazon Managed Grafana. Its datasource
   (CloudWatch) and dashboards are provisioned as code (YAML/JSON baked into the Grafana Docker
   image at build time via its provisioning directories) so the service stays stateless — no EFS

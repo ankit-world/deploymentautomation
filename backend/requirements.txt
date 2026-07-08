@@ -1,5 +1,9 @@
 fastapi>=0.115
 uvicorn[standard]>=0.32
+# Prod process manager (session 08) — ECS task definitions override the container command to run
+# gunicorn -k uvicorn.workers.UvicornWorker instead of plain uvicorn. Local/docker-compose still
+# use plain uvicorn (infra/docker/backend.Dockerfile's CMD is unchanged).
+gunicorn>=23.0
 motor>=3.6
 pydantic>=2.9
 pydantic-settings>=2.6

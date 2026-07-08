@@ -33,5 +33,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code local harness state
+.claude/
+
 # Docker
 infra/docker/*.override.yml

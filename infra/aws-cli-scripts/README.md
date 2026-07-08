@@ -31,6 +31,22 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 aws sts get-caller-identity   # must show Account: 788070448326, user ankitexp
 ```
 
+## Second Windows gotcha: MSYS path conversion
+
+Git-Bash-on-Windows (MSYS2) auto-converts any CLI argument that looks like a Unix absolute path
+into a Windows path *before* the AWS CLI ever sees it — e.g. `--health-check-path /login` silently
+becomes `--health-check-path C:/Program Files/Git/login`, which then fails AWS's validation (or
+worse, would silently "succeed" with the wrong value if it happened to pass validation). This bit
+`06-alb.sh` during session 08 (health-check paths and ALB path-pattern conditions like `/auth*`).
+Every script with a leading-`/` argument sets:
+
+```bash
+export MSYS_NO_PATHCONV=1
+```
+
+If you're writing a new script with any argument starting with `/` (S3 keys, URL paths, IAM
+resource paths, etc.), add this line too.
+
 ## Profile / account for this project
 
 - AWS CLI profile: `default` (in `~/.aws/credentials` and `~/.aws/config`, region `us-east-1`).

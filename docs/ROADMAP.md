@@ -1,5 +1,8 @@
 # Roadmap
 
+**Live since session 08**: http://chatapp-alb-811403579.us-east-1.elb.amazonaws.com (HTTP only —
+custom domain/HTTPS is session 12).
+
 This project is deliberately split into isolated, focused sessions so no single Claude Code
 session has to carry the whole build in its context window. Each session has a brief at
 `docs/sessions/NN-name.md` that is self-contained: a fresh session (or a parallel one running in
@@ -24,7 +27,7 @@ sequentially.
 - [x] 05 — Dockerization & local end-to-end
 - [x] 06 — AWS account bootstrap (CLI install, IAM user, OIDC role, budget alarm)
 - [x] 07 — AWS networking + ECR (VPC, subnets, NAT, security groups, ECR repos)
-- [ ] 08 — AWS compute + ALB (ECS cluster, task defs, services, load balancer, Secrets Manager)
+- [x] 08 — AWS compute + ALB (ECS cluster, task defs, services, load balancer, Secrets Manager)
 - [ ] 09 — ElastiCache + CloudWatch (Redis, log groups, Container Insights, alarms)
 - [ ] 10 — Grafana on Fargate (config-as-code dashboards over CloudWatch)
 - [ ] 11 — CI/CD via GitHub Actions (OIDC, build/push/deploy pipeline)
