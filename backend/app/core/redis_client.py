@@ -24,8 +24,20 @@ def _create_client() -> Redis:
     return fakeredis_async.FakeRedis(decode_responses=True)
 
 
+async def connect_redis() -> None:
+    """Called from app.main's lifespan on startup — moves client creation from lazy (on first
+    get_redis() call) to explicit, mirroring app.core.db.connect_db(). Real Redis/fakeredis
+    client construction is non-blocking (no network I/O happens until a command is actually
+    sent), so this is safe to run in tests' real lifespan same as connect_db() is."""
+    global _client
+    if _client is None:
+        _client = _create_client()
+
+
 async def get_redis() -> Redis:
-    """FastAPI dependency. A single client/connection pool is reused across requests."""
+    """FastAPI dependency. A single client/connection pool is reused across requests. Falls back
+    to lazy creation if somehow called before connect_redis() ran (shouldn't happen in normal
+    FastAPI request handling, which always runs after lifespan startup completes)."""
     global _client
     if _client is None:
         _client = _create_client()

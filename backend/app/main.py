@@ -4,18 +4,21 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.db import close_db
-from app.core.redis_client import close_redis
+from app.core.db import close_db, connect_db
+from app.core.redis_client import close_redis, connect_redis
 from app.routers import auth, conversations, files, messages
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await connect_db()
+    await connect_redis()
     yield
     # ECS sends SIGTERM on every rolling redeploy (session 11 made these automatic on every
     # push to main) — close both connection pools gracefully instead of the socket just being
-    # dropped. See close_db()/close_redis() for why there's no matching startup step.
-    close_db()
+    # dropped. See connect_db()/connect_redis() for why there's no real connectivity check here,
+    # just client construction.
+    await close_db()
     await close_redis()
 
 
