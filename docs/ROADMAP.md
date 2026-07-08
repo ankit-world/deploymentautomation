@@ -68,6 +68,15 @@ scheduled sessions:
   instance redundancy (`desiredCount` > 1) was surfaced but deliberately deferred — real ongoing
   AWS cost for a project not yet at that scale. See `docs/ARCHITECTURE.md`'s "Production-
   readiness audit" entry.
+- **LLM client eager-init crash** (2026-07-08) — a follow-up bug the audit's own test-gating fix
+  (above) exposed: `deploy.yml` had never actually run backend tests before (no gate existed, and
+  `ci.yml` only triggers on pull requests, which this repo doesn't use), so this was the first
+  time pytest ran in a truly clean environment. `app/services/llm.py` built its `AsyncOpenAI`
+  client at *import* time; without a real `OPENAI_API_KEY` (no `.env`, as in CI) this raises
+  `OpenAIError` during `import app.main`, failing pytest collection entirely — reproduced exactly
+  via a from-scratch `python:3.12-slim` container with no `.env`. Fixed by building the client
+  lazily (`functools.lru_cache`-wrapped `_get_client()`), matching the same "no import-time I/O
+  or side effects" principle already applied to `app/core/db.py`.
 
 ## Dependency order
 

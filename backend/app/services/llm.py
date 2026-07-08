@@ -25,6 +25,7 @@ user's question, rather than chunked/embedded/retrieved.
 
 import logging
 from collections.abc import AsyncIterator, Callable
+from functools import lru_cache
 
 from openai import AsyncOpenAI
 
@@ -32,11 +33,19 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(
-    api_key=settings.openai_api_key,
-    base_url=settings.openai_base_url or None,
-    timeout=settings.llm_request_timeout_seconds,
-)
+
+@lru_cache(maxsize=1)
+def _get_client() -> AsyncOpenAI:
+    # Built lazily, not at import time: AsyncOpenAI raises OpenAIError if api_key is falsy
+    # (settings.openai_api_key defaults to ""), which would otherwise crash every import of this
+    # module - including pytest collection - in any environment without a real key configured
+    # (local dev without .env, CI). Confirmed via a real CI failure once the test suite actually
+    # ran in a clean environment for the first time (backend-tests gate added to deploy.yml).
+    return AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url or None,
+        timeout=settings.llm_request_timeout_seconds,
+    )
 
 SYSTEM_PROMPT = (
     "You are a helpful, concise assistant in a ChatGPT-style chat app. When the user's message "
@@ -111,7 +120,7 @@ async def stream_chat_completion(
     chunk, same shape as real OpenAI) — not assumed, since this gateway has diverged from vanilla
     OpenAI behavior before in other ways (see this module's docstring above).
     """
-    stream = await _client.chat.completions.create(
+    stream = await _get_client().chat.completions.create(
         model=model or settings.openai_model,
         messages=messages,
         stream=True,
