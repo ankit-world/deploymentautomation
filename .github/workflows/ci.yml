@@ -1,0 +1,66 @@
+# Session 11 — CI: lint + test on every pull request. Never touches AWS (no credentials
+# configured at all in this workflow) — see docs/sessions/11-cicd-github-actions.md correction #3:
+# the deploy role's OIDC trust policy only allows assumption from
+# repo:ankit-world/deploymentautomation:ref:refs/heads/main, which a pull_request-triggered run
+# can't satisfy anyway, so this workflow doesn't even try.
+#
+# Commands mirror exactly what backend/README.md and frontend/README.md already document as the
+# established local dev commands (pytest; npm run lint / npm run build) — nothing new invented
+# here.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        # No .env / real MongoDB needed — tests run against mongomock-motor + fakeredis
+        # (backend/tests/conftest.py), and every Settings field has a local-dev default
+        # (backend/app/core/config.py), so pytest works standalone in CI.
+        run: pytest
+
+  frontend:
+    name: Frontend lint + build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: frontend
+        # NEXT_PUBLIC_API_URL is left at its build-time default (http://localhost:8000, see
+        # frontend/src/lib/api.ts) — CI only needs to prove the build succeeds, it doesn't need to
+        # point at the real ALB the way deploy.yml's production build does.
+        run: npm run build
