@@ -17,6 +17,14 @@
 # permissions: id-token: write is required for configure-aws-credentials' OIDC role assumption to
 # work at all (docs/sessions/11-cicd-github-actions.md correction #5) — omitting it fails silently
 # as a permissions error at runtime, not at workflow-syntax time.
+#
+# Production-audit follow-up: `deploy` now `needs: [backend-tests, frontend-checks]`. Before this,
+# nothing gated a deploy on tests passing — ci.yml only runs on pull_request, and this project
+# pushes directly to main (no PR workflow used in practice), so ci.yml never actually ran; a
+# broken commit would have shipped straight to production. These two jobs duplicate ci.yml's
+# steps rather than importing it, since GitHub Actions has no clean "run this other workflow's
+# jobs inline" primitive — reusable workflows (workflow_call) are the alternative but add
+# indirection for two short job definitions that are easier to just read in this one file.
 
 name: Deploy
 
@@ -36,8 +44,37 @@ env:
   ALB_DNS_NAME: chatapp-alb-811403579.us-east-1.elb.amazonaws.com
 
 jobs:
+  backend-tests:
+    name: Backend tests (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - working-directory: backend
+        run: pip install -r requirements.txt
+      - working-directory: backend
+        run: pytest
+
+  frontend-checks:
+    name: Frontend lint + build (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run lint
+      - working-directory: frontend
+        run: npm run build
+
   deploy:
     name: Build, push, and deploy to ECS
+    needs: [backend-tests, frontend-checks]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -1,44 +1,54 @@
-fastapi>=0.115
-uvicorn[standard]>=0.32
+# Exact-pinned (not >=): production-audit follow-up. Unpinned floors meant a future `pip
+# install` could silently pull a newer, untested version into a build — no lockfile existed to
+# prevent this. Every version below is what's actually installed and passing the full test suite
+# right now (`pip freeze` in backend/.venv); bump deliberately, not by accident. Re-verify with
+# `pytest` after any bump.
+
+fastapi==0.139.0
+uvicorn[standard]==0.50.2
 # Prod process manager (session 08) — ECS task definitions override the container command to run
 # gunicorn -k uvicorn.workers.UvicornWorker instead of plain uvicorn. Local/docker-compose still
 # use plain uvicorn (infra/docker/backend.Dockerfile's CMD is unchanged).
-gunicorn>=23.0
-motor>=3.6
-pydantic>=2.9
-pydantic-settings>=2.6
-email-validator>=2.2
-pyjwt>=2.9
-bcrypt>=4.2
-python-multipart>=0.0.9
+gunicorn==26.0.0
+motor==3.7.1
+# Explicit, not just a transitive dependency of motor — app/routers/auth.py imports
+# pymongo.errors.DuplicateKeyError directly (production-audit follow-up: the signup race-
+# condition fix).
+pymongo==4.17.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0
+pyjwt==2.13.0
+bcrypt==5.0.0
+python-multipart==0.0.32
 
 # LLM (session 02) — official OpenAI SDK, pointed at a custom base_url for the Euri/Euron
 # OpenAI-compatible gateway. See app/services/llm.py for what was verified about it.
-openai>=1.54
+openai==2.44.0
 
 # File text extraction (session 02)
-pdfplumber>=0.11
-python-docx>=1.1
-openpyxl>=3.1
+pdfplumber==0.11.10
+python-docx==1.2.0
+openpyxl==3.1.5
 
 # File storage (session 02) — local disk now, boto3 used lazily by the S3 backend stub
 # (session 08 wires it up for real; not exercised until then).
-boto3>=1.35
+boto3==1.43.41
 
 # Application-level metrics via CloudWatch Embedded Metric Format (EMF) — see
 # app/core/metrics.py. Distinct from the infra-level metrics (ECS/ALB/ElastiCache) sessions
 # 09-10 already cover via Container Insights + Grafana; this is request/LLM/chat/upload metrics.
-aws-embedded-metrics>=3.2
+aws-embedded-metrics==3.5.0
 
 # Redis-backed rate limiting (session 02). `redis` is the real async client used once
 # REDIS_URL is set (ElastiCache in prod, session 09); `fakeredis` is the in-memory dev
 # substitute used automatically when REDIS_URL is unset — see app/core/redis_client.py.
-redis>=5.0
-fakeredis>=2.20
+redis==8.0.1
+fakeredis==2.36.2
 
 # dev/test only
-pytest>=8.3
-pytest-asyncio>=0.24
-httpx>=0.27
-mongomock-motor>=0.0.34
-reportlab>=4.2
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
+mongomock-motor==0.0.36
+reportlab==5.0.0

@@ -259,20 +259,26 @@ fi
 
 NETWORK_CONFIG="{\"awsvpcConfiguration\":{\"subnets\":[\"$PRIVATE_SUBNET_A_ID\",\"$PRIVATE_SUBNET_B_ID\"],\"securityGroups\":[\"$ECS_SG_ID\"],\"assignPublicIp\":\"DISABLED\"}}"
 
+# Production-audit follow-up: circuit breaker + auto-rollback, matching backend/frontend (see
+# 08-ecs-services.sh) — was off on all three services before this fix.
+DEPLOYMENT_CONFIG='deploymentCircuitBreaker={enable=true,rollback=true}'
+
 echo
 echo "== Grafana service =="
 STATUS="$(aws ecs describe-services --cluster "$CLUSTER_NAME" --services "${PROJECT_NAME}-grafana" \
   --query "services[0].status" --output text 2>/dev/null || true)"
 if [ "$STATUS" = "ACTIVE" ]; then
   aws ecs update-service --cluster "$CLUSTER_NAME" --service "${PROJECT_NAME}-grafana" \
-    --task-definition "$GRAFANA_TASK_DEF_ARN" --force-new-deployment >/dev/null
+    --task-definition "$GRAFANA_TASK_DEF_ARN" --force-new-deployment \
+    --deployment-configuration "$DEPLOYMENT_CONFIG" >/dev/null
   echo "Updated existing service to $GRAFANA_TASK_DEF_ARN."
 else
   aws ecs create-service --cluster "$CLUSTER_NAME" --service-name "${PROJECT_NAME}-grafana" \
     --task-definition "$GRAFANA_TASK_DEF_ARN" --desired-count 1 --launch-type FARGATE \
     --network-configuration "$NETWORK_CONFIG" \
     --load-balancers "targetGroupArn=$GRAFANA_TG_ARN,containerName=grafana,containerPort=${GRAFANA_PORT}" \
-    --health-check-grace-period-seconds 60 >/dev/null
+    --health-check-grace-period-seconds 60 \
+    --deployment-configuration "$DEPLOYMENT_CONFIG" >/dev/null
   echo "Created service ${PROJECT_NAME}-grafana."
 fi
 

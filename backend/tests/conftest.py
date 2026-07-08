@@ -1,3 +1,5 @@
+import asyncio
+
 import fakeredis.aioredis as fakeredis_async
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +15,11 @@ from app.services.storage import LocalDiskStorage, get_storage
 @pytest.fixture()
 def client(tmp_path):
     mock_db = AsyncMongoMockClient()["test_db"]
+    # Mirrors the real unique index backend/scripts/ensure_indexes.py creates on Atlas — without
+    # it here too, tests can't exercise the DuplicateKeyError race-condition handling in
+    # app/routers/auth.py's signup(), since mongomock enforces nothing without an actual index.
+    # No running event loop exists yet at this point in fixture setup, so asyncio.run() is safe.
+    asyncio.run(mock_db.users.create_index("email", unique=True))
     fake_redis = fakeredis_async.FakeRedis(decode_responses=True)
     local_storage = LocalDiskStorage(tmp_path / "uploads")
 
@@ -29,6 +36,10 @@ def client(tmp_path):
     app.dependency_overrides[get_redis] = override_get_redis
     app.dependency_overrides[get_storage] = override_get_storage
     with TestClient(app) as test_client:
+        # Exposed for tests that need to reach into the mock DB directly (e.g. simulating a
+        # check-then-act race by inserting a doc "behind the API's back" — see
+        # test_signup_race_condition_caught_by_unique_index in test_auth.py).
+        test_client.mock_db = mock_db
         yield test_client
     app.dependency_overrides.clear()
 

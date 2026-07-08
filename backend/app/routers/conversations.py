@@ -5,6 +5,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.serialization import serialize_doc
 from app.dependencies import get_current_user
@@ -61,7 +62,11 @@ async def list_conversations(
     current_user: UserOut = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ) -> list[ConversationOut]:
-    cursor = db.conversations.find({"user_id": current_user.id}).sort("updated_at", -1)
+    cursor = (
+        db.conversations.find({"user_id": current_user.id})
+        .sort("updated_at", -1)
+        .limit(settings.max_conversations_returned)
+    )
     return [ConversationOut(**serialize_doc(doc)) async for doc in cursor]
 
 

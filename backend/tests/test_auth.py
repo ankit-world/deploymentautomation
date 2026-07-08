@@ -20,6 +20,39 @@ def test_signup_duplicate_email_rejected(client):
     assert client.post("/auth/signup", json=payload).status_code == 409
 
 
+def test_signup_race_condition_caught_by_unique_index(client, monkeypatch):
+    """The pre-check (find_one) only catches the common sequential case — two truly concurrent
+    signups for the same email can both pass it before either has inserted. Simulate that race
+    directly: insert the conflicting user "behind the API's back" (as a concurrent request would
+    have), then force find_one to report "no conflict" (as it legitimately would have, at the
+    instant both requests checked). The unique index must be what actually rejects the second
+    insert — proving app/routers/auth.py's except DuplicateKeyError path, not just the pre-check,
+    is what makes this safe."""
+    import asyncio
+
+    asyncio.run(
+        client.mock_db.users.insert_one(
+            {
+                "email": "race@example.com",
+                "name": "Already Here",
+                "hashed_password": "irrelevant",
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
+    )
+
+    async def find_one_sees_no_conflict(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(client.mock_db.users, "find_one", find_one_sees_no_conflict)
+
+    resp = client.post(
+        "/auth/signup",
+        json={"email": "race@example.com", "password": "hunter22", "name": "Racer"},
+    )
+    assert resp.status_code == 409
+
+
 def test_login_wrong_password_rejected(client):
     client.post(
         "/auth/signup",
@@ -76,3 +109,37 @@ def test_logout_blacklists_refresh_token(client):
     # this is the scenario a bare-JWT-only logout can't defend against.
     replay_resp = client.post("/auth/refresh", cookies={"refresh_token": old_refresh_token})
     assert replay_resp.status_code == 401
+
+
+def test_login_is_rate_limited_per_ip(client):
+    """Before this, only the chat endpoint was rate-limited - nothing stood between an attacker
+    and unlimited password guesses against a known email. Login intentionally fails every
+    attempt here (wrong password) so this only exercises the rate limiter, not the auth
+    outcome."""
+    from app.core.config import settings
+
+    payload = {"email": "nobody@example.com", "password": "wrong-password"}
+    for _ in range(settings.auth_rate_limit_max_requests):
+        resp = client.post("/auth/login", json=payload)
+        assert resp.status_code == 401  # wrong password, but not yet rate-limited
+
+    resp = client.post("/auth/login", json=payload)
+    assert resp.status_code == 429
+
+
+def test_signup_is_rate_limited_per_ip(client):
+    from app.core.config import settings
+
+    for i in range(settings.auth_rate_limit_max_requests):
+        resp = client.post(
+            "/auth/signup",
+            json={"email": f"ratelimit{i}@example.com", "password": "hunter22", "name": "X"},
+        )
+        assert resp.status_code == 201
+        client.cookies.clear()  # each signup logs the client in; don't let that affect the next
+
+    resp = client.post(
+        "/auth/signup",
+        json={"email": "one-too-many@example.com", "password": "hunter22", "name": "X"},
+    )
+    assert resp.status_code == 429

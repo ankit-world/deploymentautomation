@@ -50,13 +50,18 @@ async def upload_file(
 ) -> FileOut:
     await get_owned_conversation(conversation_id, current_user.id, db)
 
-    data = await file.read()
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    # Read at most max_bytes+1, not the whole body unconditionally: on a 512MB Fargate task,
+    # `await file.read()` with no size argument would materialize an attacker-controlled-size
+    # upload fully into memory before this function ever gets to check its length, regardless of
+    # the configured limit. Reading a bounded amount caps the damage to just over the limit no
+    # matter how large the actual request body is.
+    data = await file.read(max_bytes + 1)
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file is empty")
-    max_bytes = settings.max_upload_size_mb * 1024 * 1024
     if len(data) > max_bytes:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             f"File exceeds the {settings.max_upload_size_mb}MB upload limit",
         )
 

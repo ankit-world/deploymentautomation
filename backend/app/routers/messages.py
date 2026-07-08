@@ -199,5 +199,15 @@ async def list_messages(
 ) -> list[MessageOut]:
     await get_owned_conversation(conversation_id, current_user.id, db)
 
-    cursor = db.messages.find({"conversation_id": conversation_id}).sort("created_at", 1)
-    return [MessageOut(**serialize_doc(doc)) async for doc in cursor]
+    # Sort newest-first to `.limit()` the *most recent* N messages (not the oldest N, which
+    # `.limit()` on an ascending sort would silently do instead — wrong for a chat thread once a
+    # conversation exceeds the cap, since you'd get stuck seeing only its very beginning forever).
+    # Reverse back to chronological order before returning.
+    cursor = (
+        db.messages.find({"conversation_id": conversation_id})
+        .sort("created_at", -1)
+        .limit(settings.max_messages_returned)
+    )
+    docs = [doc async for doc in cursor]
+    docs.reverse()
+    return [MessageOut(**serialize_doc(doc)) for doc in docs]

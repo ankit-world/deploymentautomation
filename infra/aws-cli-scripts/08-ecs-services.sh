@@ -36,6 +36,13 @@ done
 
 NETWORK_CONFIG="{\"awsvpcConfiguration\":{\"subnets\":[\"$PRIVATE_SUBNET_A_ID\",\"$PRIVATE_SUBNET_B_ID\"],\"securityGroups\":[\"$ECS_SG_ID\"],\"assignPublicIp\":\"DISABLED\"}}"
 
+# Production-audit follow-up: circuit breaker + auto-rollback. Without this, a deploy that pushes
+# a task which never reaches a healthy state (crashes on startup, fails its ALB health check,
+# etc.) just sits there indefinitely instead of automatically reverting to the last known-good
+# task definition — confirmed this was actually off on the live services
+# (`deploymentCircuitBreaker.enable: false`) before this fix, not assumed.
+DEPLOYMENT_CONFIG='deploymentCircuitBreaker={enable=true,rollback=true}'
+
 create_or_update_service() {
   local name="$1" task_def_arn="$2" tg_arn="$3" container_name="$4" container_port="$5"
   local status
@@ -43,14 +50,16 @@ create_or_update_service() {
     --query "services[0].status" --output text 2>/dev/null || true)"
   if [ "$status" = "ACTIVE" ]; then
     aws ecs update-service --cluster "$CLUSTER_NAME" --service "$name" \
-      --task-definition "$task_def_arn" --force-new-deployment >/dev/null
+      --task-definition "$task_def_arn" --force-new-deployment \
+      --deployment-configuration "$DEPLOYMENT_CONFIG" >/dev/null
     echo "Updated existing service $name to $task_def_arn."
   else
     aws ecs create-service --cluster "$CLUSTER_NAME" --service-name "$name" \
       --task-definition "$task_def_arn" --desired-count 1 --launch-type FARGATE \
       --network-configuration "$NETWORK_CONFIG" \
       --load-balancers "targetGroupArn=$tg_arn,containerName=$container_name,containerPort=$container_port" \
-      --health-check-grace-period-seconds 60 >/dev/null
+      --health-check-grace-period-seconds 60 \
+      --deployment-configuration "$DEPLOYMENT_CONFIG" >/dev/null
     echo "Created service $name."
   fi
 }

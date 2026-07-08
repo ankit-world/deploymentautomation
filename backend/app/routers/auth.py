@@ -3,10 +3,12 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 from redis.asyncio import Redis
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.rate_limit import enforce_auth_rate_limit
 from app.core.redis_client import get_redis
 from app.core.security import (
     REFRESH_TOKEN_TYPE,
@@ -54,7 +56,12 @@ def _set_auth_cookies(response: Response, user_id: str) -> None:
     )
 
 
-@router.post("/signup", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(enforce_auth_rate_limit)],
+)
 async def signup(
     body: UserSignup, response: Response, db: AsyncIOMotorDatabase = Depends(get_db)
 ) -> UserOut:
@@ -73,7 +80,19 @@ async def signup(
         "hashed_password": hash_password(body.password),
         "created_at": now,
     }
-    result = await db.users.insert_one(doc)
+    try:
+        result = await db.users.insert_one(doc)
+    except DuplicateKeyError:
+        # The find_one check above is a fast-path for the common case (no unique-key round trip
+        # to the DB, no wasted bcrypt hash on an obviously-rejected signup), but it's a
+        # check-then-act race: two concurrent signups for the same email can both pass it. The
+        # unique index on users.email (backend/scripts/ensure_indexes.py) is what actually
+        # enforces the constraint — this is what catches the race the pre-check can't.
+        logger.info(
+            "signup rejected: email already registered (race with a concurrent signup)",
+            extra={"event": "signup_rejected", "email": body.email.lower()},
+        )
+        raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered") from None
     doc["_id"] = result.inserted_id
 
     _set_auth_cookies(response, str(result.inserted_id))
@@ -88,7 +107,7 @@ async def signup(
     return UserOut(**serialize_doc(doc))
 
 
-@router.post("/login", response_model=UserOut)
+@router.post("/login", response_model=UserOut, dependencies=[Depends(enforce_auth_rate_limit)])
 async def login(
     body: UserLogin, response: Response, db: AsyncIOMotorDatabase = Depends(get_db)
 ) -> UserOut:

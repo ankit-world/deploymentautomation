@@ -169,3 +169,41 @@ def test_post_message_with_unknown_attachment_is_rejected(client, mock_llm_strea
         json={"content": "hi", "file_ids": ["64b7f3c3f3c3f3c3f3c3f3c3"]},
     )
     assert resp.status_code == 404
+
+
+def test_list_messages_returns_most_recent_n_in_chronological_order(client, monkeypatch):
+    """Production-audit follow-up: GET .../messages was previously unbounded. Capping it must
+    keep the *most recent* N messages, not the oldest N (which a naive `.limit()` on an
+    ascending sort would silently give instead) — otherwise a long conversation gets stuck
+    showing only its very beginning forever once it exceeds the cap."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "max_messages_returned", 3)
+
+    _signup(client, email="olga@example.com")
+    conversation = _create_conversation(client)
+
+    base = datetime.now(timezone.utc)
+
+    async def seed():
+        for i in range(5):
+            await client.mock_db.messages.insert_one(
+                {
+                    "conversation_id": conversation["id"],
+                    "role": "user",
+                    "content": f"message {i}",
+                    "attachments": [],
+                    "created_at": base + timedelta(seconds=i),
+                }
+            )
+
+    asyncio.run(seed())
+
+    resp = client.get(f"/conversations/{conversation['id']}/messages")
+    assert resp.status_code == 200
+    contents = [m["content"] for m in resp.json()]
+    # The 3 most recent (2, 3, 4), still in chronological order - not (0, 1, 2).
+    assert contents == ["message 2", "message 3", "message 4"]

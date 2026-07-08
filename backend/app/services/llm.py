@@ -32,7 +32,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
+_client = AsyncOpenAI(
+    api_key=settings.openai_api_key,
+    base_url=settings.openai_base_url or None,
+    timeout=settings.llm_request_timeout_seconds,
+)
 
 SYSTEM_PROMPT = (
     "You are a helpful, concise assistant in a ChatGPT-style chat app. When the user's message "

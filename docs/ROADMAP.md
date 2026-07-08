@@ -53,6 +53,21 @@ scheduled sessions:
   logs were considered as a companion fix but deliberately skipped — they land in S3, not
   CloudWatch, so they don't match the literal ask. See `docs/ARCHITECTURE.md`'s "Structured
   logging" entry and `backend/app/core/logging_config.py`.
+- **Production-readiness audit** (2026-07-08) — prompted by the same pattern as the lifespan gap:
+  asked to proactively find any other missed production-grade practices rather than wait for them
+  to be reported one at a time. Found and fixed: no DB indexes + a TOCTOU signup race
+  (`DuplicateKeyError` now caught, indexes created via `backend/scripts/ensure_indexes.py`), no
+  rate limiting on `/auth/signup`/`/auth/login` (added, keyed by client IP via `X-Forwarded-For`),
+  unbounded file-upload reads before the size check (now bounded), `deploy.yml` deploying without
+  running tests first (now gated on `backend-tests`/`frontend-checks`), no global exception
+  handler (added — required folding it into the existing `BaseHTTPMiddleware` instead of a
+  separate `@app.exception_handler`, since that combination is a known Starlette/FastAPI gap),
+  unbounded list endpoints (`GET /conversations`, `GET /conversations/{id}/messages` now capped),
+  loose (`>=`) dependency pins (now exact), no LLM request timeout, no frontend error boundary,
+  and no ECS deployment circuit breaker (added, live-applied to all three services). Multi-
+  instance redundancy (`desiredCount` > 1) was surfaced but deliberately deferred — real ongoing
+  AWS cost for a project not yet at that scale. See `docs/ARCHITECTURE.md`'s "Production-
+  readiness audit" entry.
 
 ## Dependency order
 

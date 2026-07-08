@@ -34,6 +34,31 @@ def test_upload_and_download_roundtrip_bytes_unmodified(client):
     assert download_resp.content == original_bytes
 
 
+def test_upload_rejects_file_exceeding_size_limit(client, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "max_upload_size_mb", 1)  # 1MB, easy to exceed in a test
+    _signup(client, email="oversize@example.com")
+    conversation = _create_conversation(client)
+
+    oversized = b"x" * (1024 * 1024 + 1)  # exactly one byte over the limit
+    resp = client.post(
+        f"/conversations/{conversation['id']}/files",
+        files={"file": ("big.bin", oversized, "application/octet-stream")},
+    )
+    assert resp.status_code == 413
+
+    # A file right at the limit (not over it) must still succeed — confirms the bounded read
+    # (file.read(max_bytes + 1)) doesn't accidentally truncate/reject legitimate uploads.
+    at_limit = b"x" * (1024 * 1024)
+    resp = client.post(
+        f"/conversations/{conversation['id']}/files",
+        files={"file": ("exact.bin", at_limit, "application/octet-stream")},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["size"] == len(at_limit)
+
+
 def test_upload_pdf_extracts_text_preview(client):
     _signup(client, email="xena@example.com")
     conversation = _create_conversation(client)

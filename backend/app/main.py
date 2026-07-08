@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging_config import setup_logging
@@ -81,12 +82,38 @@ async def observability_middleware(request: Request, call_next):
     contain real IDs) for the *metric* — using the raw path would make every distinct
     conversation/file id its own dimension value. The raw path is fine (and more useful) for the
     *log* line, which doesn't have metric cardinality concerns, so both are recorded.
+
+    Also the global unhandled-exception handler — `@app.exception_handler(Exception)` looks like
+    the idiomatic FastAPI way to do this, but it does NOT reliably fire when a `BaseHTTPMiddleware`
+    (which `@app.middleware("http")` creates) is also registered, a known Starlette/FastAPI
+    interaction gap — confirmed directly here, not assumed: an initial attempt using
+    `@app.exception_handler(Exception)` let the raw exception propagate straight past it in
+    testing. Catching it in this middleware's own try/except sidesteps the issue entirely, and
+    conveniently means the request-completed metric/log line still fires for failures too (with
+    the correct 500 status), not just successes.
     """
     if request.url.path == "/health":
         return await call_next(request)
 
     start = time.perf_counter()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start) * 1000
+        route = request.scope.get("route")
+        route_path = route.path if route is not None else request.url.path
+        logger.exception(
+            "unhandled exception",
+            exc_info=exc,
+            extra={
+                "event": "unhandled_exception",
+                "method": request.method,
+                "path": request.url.path,
+                "user_id": _resolve_user_id(request),
+            },
+        )
+        await metrics.record_request(route_path, request.method, 500, duration_ms)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
     duration_ms = (time.perf_counter() - start) * 1000
 
     route = request.scope.get("route")

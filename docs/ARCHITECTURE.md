@@ -120,6 +120,61 @@ README.md
   this but deliberately not built — they land in S3, not CloudWatch (AWS offers no CloudWatch
   Logs destination for that specific feature), which doesn't match the literal "inside CloudWatch"
   ask this section is responding to.
+- **Production-readiness audit (2026-07-08)**: a proactive sweep for other missed best practices,
+  triggered by the lifespan gap above. Findings and fixes, all live-verified (real tests plus a
+  real local run against production Atlas, not just code review):
+  - **DB indexes + signup race**: no indexes existed anywhere (`backend/scripts/ensure_indexes.py`
+    is a standalone idempotent script, run manually — already applied to production Atlas — not
+    called from `lifespan`, since every container replica racing to create indexes on every
+    restart is worse than a one-time manual step). `auth.py`'s signup pre-checks `find_one` for a
+    duplicate email, which is a fast path, not the actual guarantee; the real guarantee is now the
+    unique index plus a caught `DuplicateKeyError` around the insert, closing the TOCTOU race
+    between two concurrent signups with the same email.
+  - **Auth rate limiting**: `/auth/signup` and `/auth/login` had none — only the post-auth chat
+    endpoint did. Can't key by `user_id` pre-auth, so `app/core/rate_limit.py`'s new
+    `enforce_auth_rate_limit` keys by client IP, read from `X-Forwarded-For` (the ALB always
+    appends the real client IP; `request.client.host` alone would just be the ALB's own address).
+  - **Unbounded upload reads**: `files.py` read the full request body into memory *before*
+    checking it against `max_upload_size_mb`, so the size limit didn't bound memory use, just
+    rejected after the fact. Now reads at most `max_bytes + 1`.
+  - **`deploy.yml` had no test gate**: it built and deployed on every push to `main` regardless of
+    whether tests passed. Added `backend-tests`/`frontend-checks` jobs (mirroring `ci.yml`) and
+    made `deploy` depend on both via `needs:`.
+  - **No global exception handler**: an unhandled exception in any route crashed straight through
+    to a bare framework error. Tried the obvious `@app.exception_handler(Exception)` first; a real
+    test proved it doesn't fire when `BaseHTTPMiddleware`-style middleware is registered (a known
+    Starlette/FastAPI interaction gap, confirmed here rather than assumed) — the exception
+    propagated past the handler to the test client instead of being converted. Fixed by moving the
+    try/except directly into `observability_middleware`'s `call_next()` call instead of a separate
+    handler; now logs the full structured traceback and returns a clean `{"detail": "Internal
+    server error"}` 500. Confirmed working against a *real*, non-synthetic failure during the live
+    smoke test below (a transient local DNS resolution error reaching Atlas), not just the
+    purpose-built test.
+  - **Unbounded list endpoints**: `GET /conversations` and `GET /conversations/{id}/messages` had
+    no cap — an account's data would grow every response forever. Added
+    `max_conversations_returned`/`max_messages_returned` (generous defaults, a backstop not a
+    UX-facing pagination scheme). The messages endpoint needed care: capping via `.limit()` on an
+    ascending sort would keep the *oldest* N messages, not the most recent N, silently freezing a
+    long conversation's visible history at its beginning — fixed by sorting descending, limiting,
+    then reversing in Python.
+  - **Loose dependency pins**: `requirements.txt` used `>=` throughout; rewritten to exact `==`
+    pins from real installed versions (`pip freeze`), for reproducible builds.
+  - **No LLM request timeout**: `AsyncOpenAI` had no `timeout=`, so a stalled gateway response
+    would tie up server resources for the SDK's own default (minutes) instead of failing out to
+    the chat endpoint's existing error-handling path. Set to 60s.
+  - **No frontend error boundary**: an unhandled render error fell through to Next's bare default
+    crash screen. Added `frontend/src/app/error.tsx` (route-segment errors) and
+    `global-error.tsx` (root-layout errors, which `error.tsx` structurally can't catch since it
+    renders inside the layout it would need to replace).
+  - **No ECS deployment circuit breaker**: a bad task definition would keep being redeployed
+    indefinitely rather than rolling back automatically. Added
+    `deploymentCircuitBreaker={enable=true,rollback=true}` to all three services' deployment
+    configuration — applied live via `aws ecs update-service`, not just checked into the
+    provisioning scripts, and confirmed via `describe-services` on all three.
+  - **Deliberately deferred**: multi-instance redundancy (`desiredCount` > 1 per service) was
+    surfaced but left as-is — real ongoing AWS cost (roughly doubling compute spend) for
+    resilience this project doesn't need yet at its current traffic/scale, consistent with the
+    cost-conscious choices made throughout the AWS sessions.
 
 ## Frontend (Next.js)
 
