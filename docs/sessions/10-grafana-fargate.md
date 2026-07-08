@@ -7,7 +7,12 @@ CloudWatch, reachable through the ALB.
 
 ## Prerequisites
 
-- Session 09 done (Container Insights + alarms exist, so there's something worth graphing).
+- Session 08 done (ECS cluster/ALB/ECR live). Session 09 is a *soft* dependency, not hard: basic
+  ECS/ALB CloudWatch metrics (CPUUtilization, RequestCount, TargetResponseTime,
+  HTTPCode_Target_5XX_Count) are emitted by AWS by default regardless of Container Insights, so
+  dashboards built here work without session 09 — the Container-Insights-level panels and the
+  ElastiCache panel will just show no data until session 09's resources exist. Safe to build this
+  session concurrently with session 09 (e.g. in a separate git worktree) rather than waiting.
 
 ## Deliverables
 
