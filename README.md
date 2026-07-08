@@ -1,112 +1,170 @@
-# ChatGPT-style App
+# chatapp — a production ChatGPT-style app
 
-A multi-user, ChatGPT-like web app: Next.js/TypeScript/Tailwind frontend, FastAPI backend,
-MongoDB Atlas storage, OpenAI-powered chat with image/PDF/Word/Excel attachments, deployed on
-AWS ECS Fargate behind an ALB, with Redis (ElastiCache), CloudWatch, self-hosted Grafana, and
-GitHub Actions CI/CD.
+A multi-user, ChatGPT-like web application: chat with an LLM, attach images and documents, and get
+streamed responses — built and deployed end to end on AWS with full CI/CD and observability.
 
-## Status
+**Live:** http://chatapp-alb-811403579.us-east-1.elb.amazonaws.com &nbsp;·&nbsp; **Status:** deployed
+and running (HTTP only — HTTPS/custom domain is the one deferred item, see `docs/ROADMAP.md`).
 
-Early scaffolding. See `docs/ROADMAP.md` for what's built and what's next.
+```
+Next.js + TypeScript + Tailwind   ──▶   FastAPI + Python 3.12   ──▶   MongoDB Atlas
+   (ECS Fargate, private subnet)          (ECS Fargate, private)         + S3 (files)
+                        │                          │                     + ElastiCache Redis
+                        └──────── ALB ─────────────┘                     + LLM gateway
+                     (one DNS name, path-routed)
+        Observability: CloudWatch logs + metrics · Grafana · 7 alarms → SNS
+        CI/CD: GitHub Actions → OIDC → ECR → ECS (no stored AWS keys)
+```
+
+## Features
+
+- **Streaming chat** — assistant responses stream token-by-token over Server-Sent Events.
+- **Multi-user auth** — email/password, bcrypt hashing, JWT access + refresh tokens in httpOnly
+  cookies, real server-side logout revocation (not just cookie-clearing).
+- **File attachments** — images go to the LLM as vision input; PDF/Word/Excel are text-extracted
+  server-side and folded into the prompt. All attachments are previewable inline and downloadable.
+- **Per-user isolation** — every conversation and file is scoped to its owner.
+- **Production hardening** — DB indexes + race-safe signup, IP-based rate limiting on auth
+  endpoints, bounded uploads, global exception handling, ECS deployment circuit breaker, exact
+  dependency pins (see the production-readiness audit in `docs/ROADMAP.md`).
+- **Full observability** — structured JSON logs and custom application metrics in CloudWatch,
+  server metrics via Container Insights, all visualized in a self-hosted Grafana dashboard.
+
+## Tech stack
+
+| Area | Choice |
+|---|---|
+| Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
+| Backend | FastAPI, Python 3.12, Uvicorn/Gunicorn |
+| Database | MongoDB Atlas (Motor async driver) |
+| Cache / sessions | Redis — ElastiCache in prod, `fakeredis` fallback locally |
+| LLM | OpenAI SDK against an OpenAI-compatible gateway (streaming + vision) |
+| File storage | S3 in prod, local disk in dev (one storage abstraction) |
+| Compute | AWS ECS Fargate (backend, frontend, Grafana) |
+| Networking | Application Load Balancer, path-based routing, VPC with private subnets |
+| Secrets | AWS Secrets Manager (injected into containers at start, never in images) |
+| Observability | CloudWatch (logs, EMF metrics, alarms) + self-hosted Grafana |
+| CI/CD | GitHub Actions with OIDC auth to AWS (no long-lived keys) |
+
+## Documentation
+
+| File | What it's for |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | Lean operational reference — commands, conventions, guardrails. |
+| [`docs/PLAYBOOK.md`](docs/PLAYBOOK.md) | **Portable build guide** — how it all fits together and why, the session-by-session recipe, and the hard-won gotchas. Lift into a new repo to build something similar. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full, current system design — the source of truth for specifics. |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Session checklist, dependency graph, post-roadmap follow-ups. |
+| [`docs/sessions/`](docs/sessions/) | One self-contained brief per build session. |
+| [`infra/aws-cli-scripts/README.md`](infra/aws-cli-scripts/README.md) | AWS CLI gotchas for the dev machine — read before any AWS command. |
 
 ## Project structure
 
 ```
-/frontend     Next.js 14, TypeScript, Tailwind CSS
-/backend      FastAPI, Python 3.12
-/infra        AWS CLI provisioning scripts + Dockerfiles/compose
-/docs         Architecture reference and per-session build briefs
+/frontend   Next.js App Router (route gate is src/proxy.ts, not middleware.ts)
+/backend    FastAPI — app/{core,models,routers,services}, tests/, scripts/
+/infra      aws-cli-scripts/ (numbered *.sh + setup-all.ps1 + 99-cleanup.sh), docker/
+/docs       PLAYBOOK, ARCHITECTURE, ROADMAP, sessions/
+.github/workflows  ci.yml (PR), deploy.yml (push → main)
 ```
 
-## Where to start
+## API surface
 
-- `docs/ARCHITECTURE.md` — full system design.
-- `docs/ROADMAP.md` — the session-by-session build plan and current progress.
-- `docs/sessions/` — one brief per session; each is self-contained enough to hand to a fresh
-  Claude Code session.
+All behind the ALB; the backend has no `/api` prefix.
 
-## Local development (Docker)
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/auth/signup` · `/auth/login` | Create account · sign in (rate-limited by IP) |
+| `POST` | `/auth/refresh` · `/auth/logout` | Rotate access token · revoke refresh token |
+| `GET` | `/auth/me` | Current authenticated user |
+| `GET`/`POST` | `/conversations` | List / create conversations |
+| `PATCH`/`DELETE` | `/conversations/{id}` | Rename / delete a conversation |
+| `GET`/`POST` | `/conversations/{id}/messages` | List messages / post a message (SSE stream) |
+| `POST` | `/conversations/{id}/files` | Upload an attachment |
+| `GET` | `/conversations/{id}/files/{file_id}/download` | Download an attachment |
+| `GET` | `/health` | Liveness check (used by the ALB) |
+| `GET` | `/docs` · `/openapi.json` | Interactive API docs |
 
-The full stack (frontend + backend + Redis) runs via Docker Compose. MongoDB is **not**
-containerized — both `docker compose` and any non-Docker local run talk to the real MongoDB Atlas
-cluster, so dev and prod hit identical data-access code (see `docs/ARCHITECTURE.md`).
+## Local development
 
-1. Copy `.env.example` to `.env` at the repo root and fill in real values (`MONGODB_URI`,
-   `MONGODB_DB_NAME`, `JWT_SECRET`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`). This root `.env` is read
-   automatically by `docker compose` via `env_file:` in `infra/docker/docker-compose.yml` —
-   `REDIS_URL` and `NEXT_PUBLIC_API_URL` are *not* sourced from it for Docker (compose sets those
-   itself; see the comments in `docker-compose.yml`/`frontend.Dockerfile` for why).
-2. From the **repo root**, run:
-   ```
-   docker compose -f infra/docker/docker-compose.yml up --build
-   ```
-   (The compose file's build context is the repo root regardless of where you invoke it from, so
-   `cd infra/docker && docker compose up --build` also works — both are supported, pick whichever
-   is more convenient. This README documents the `-f` form since it doesn't require changing
-   directories.)
-3. Frontend: http://localhost:3000. Backend: http://localhost:8000 (`/health` for a liveness
-   check). Redis is internal-only (no host port published) — service name `redis` inside the
-   Docker network.
-4. Uploaded files persist in a named volume (`chatapp_backend_uploads`) across
-   `docker compose restart`/`down` (without `-v`). Tear down with
-   `docker compose -f infra/docker/docker-compose.yml down` to keep that volume, or add `-v` to
-   also wipe it (fine for local dev — the real source of truth, MongoDB Atlas, is untouched
-   either way; only the local-disk file *bytes* are dropped).
+The full stack (frontend + backend + Redis) runs via Docker Compose. **MongoDB is not
+containerized** — both Docker and non-Docker runs talk to the real MongoDB Atlas cluster, so dev
+and prod exercise identical data-access code.
 
-See `docs/sessions/05-dockerization-local-e2e.md` for the full build/verification writeup,
-including the `NEXT_PUBLIC_API_URL` build-time-vs-runtime gotcha and other judgment calls.
+```bash
+cp .env.example .env    # fill in MONGODB_URI, MONGODB_DB_NAME, JWT_SECRET, OPENAI_API_KEY, OPENAI_BASE_URL
+docker compose -f infra/docker/docker-compose.yml up --build
+```
 
-### Running without Docker
+- **Frontend:** http://localhost:3000 &nbsp;·&nbsp; **Backend:** http://localhost:8000/health
+- Redis is internal-only (no host port). `REDIS_URL` and `NEXT_PUBLIC_API_URL` are set by Compose,
+  not sourced from `.env` — see the comments in `docker-compose.yml`/`frontend.Dockerfile` for why
+  (`NEXT_PUBLIC_*` is a build-time value inlined into the client bundle, not a runtime one).
+- Uploaded files persist in the `chatapp_backend_uploads` named volume across restarts. Tear down
+  with `docker compose -f infra/docker/docker-compose.yml down` (add `-v` to also wipe the volume —
+  safe locally; Atlas is the real source of truth either way).
 
-Run the frontend and backend directly (see sessions 01-04's briefs for specifics) — each needs
-its own `.env`/`.env.local` (`backend/.env`, `frontend/.env.local`), separate from the root `.env`
-Docker Compose uses.
+Full writeup incl. the build-time-vs-runtime gotcha: `docs/sessions/05-dockerization-local-e2e.md`.
 
-## Secrets
+**Without Docker:** run frontend and backend directly; each needs its own env file (`backend/.env`,
+`frontend/.env.local`), separate from the root `.env` Compose uses. See sessions 01–04's briefs.
 
-Copy `.env.example` to `.env` (repo root, for Docker Compose) and fill in real values. Never
-commit `.env`.
+## Testing
 
-## CI/CD (session 11)
+```bash
+cd backend && ./.venv/Scripts/python -m pytest -q     # 52 tests, no real infra needed
+cd frontend && npm run lint && npm run build
+```
 
-- `.github/workflows/ci.yml` — runs on every pull request: backend tests (`pytest`) and frontend
-  lint + build (`npm run lint`, `npm run build`). No AWS access at all.
-- `.github/workflows/deploy.yml` — runs on every push to `main`: builds and pushes all three
-  Docker images (backend, frontend, grafana) to ECR tagged with the commit SHA, registers a new
-  ECS task-definition revision for each service with the new image, force-deploys it, and waits
-  for all three services to stabilize. Auth is via GitHub's OIDC provider assuming
-  `chatapp-github-deploy` — no long-lived AWS keys stored in GitHub.
+The backend suite runs entirely against `mongomock-motor` + `fakeredis` — no MongoDB, Redis, AWS, or
+LLM credentials required, so it runs standalone in CI. This is exactly what `ci.yml` and
+`deploy.yml`'s test gate run.
+
+## Deployment
+
+Push to `main` triggers `deploy.yml`, which **gates on tests passing first** (`backend-tests`,
+`frontend-checks`), then builds and pushes all three Docker images to ECR (tagged with the commit
+SHA), registers a new ECS task-definition revision per service, force-deploys, waits for stability,
+and smoke-tests `/health`, `/login`, `/grafana/api/health` on the live ALB.
+
+AWS auth is via GitHub's OIDC provider assuming the `chatapp-github-deploy` role — **no long-lived
+AWS keys are stored in GitHub.** A short-lived STS credential is minted per run, scoped by IAM trust
+policy to this repo's `main` branch only.
 
 ### Rollback
 
-Every deploy registers a new task-definition revision under the same family; old revisions aren't
-deleted, so rolling back is just pointing the service at a previous revision and forcing a fresh
-deployment — no rebuild needed. Do this from a machine with the `default` AWS CLI profile
-configured for this account (see `infra/aws-cli-scripts/README.md` for the local gotchas —
-`unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN` first).
+Every deploy registers a new task-def revision; old revisions are never deleted, so rollback is just
+pointing a service at a previous one (no rebuild). Run from a machine with the `default` AWS profile
+— and **first** `unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN` (see
+`infra/aws-cli-scripts/README.md` for why):
 
-1. Find the revision you want to roll back to:
-   ```
-   aws ecs list-task-definitions --family-prefix chatapp-backend --sort DESC --profile default --region us-east-1
-   ```
-   (swap `chatapp-backend` for `chatapp-frontend` or `chatapp-grafana` for the other two services —
-   family name and service name are identical for all three).
-2. Point the service at that revision and force a fresh deployment:
-   ```
-   aws ecs update-service --cluster chatapp-cluster --service chatapp-backend \
-     --task-definition chatapp-backend:<previous-revision> --force-new-deployment \
-     --profile default --region us-east-1
-   ```
-3. Wait for it to stabilize:
-   ```
-   aws ecs wait services-stable --cluster chatapp-cluster --services chatapp-backend \
-     --profile default --region us-east-1
-   ```
-4. Confirm: `aws ecs describe-services --cluster chatapp-cluster --services chatapp-backend --query 'services[0].taskDefinition' --profile default --region us-east-1`, and re-check the app
-   (`/health`, `/login`, `/grafana/api/health` on the ALB DNS name) behaves as expected.
+```bash
+# 1. Find a revision (swap chatapp-backend for -frontend / -grafana as needed)
+aws ecs list-task-definitions --family-prefix chatapp-backend --sort DESC --profile default --region us-east-1
 
-This works for any of the three services (`chatapp-backend`, `chatapp-frontend`,
-`chatapp-grafana`) — just substitute the service/family name. Rolling back does **not** revert
-the ECR image tag or the Git history, only which task-definition revision (and therefore which
-image) each service is currently running — the next push to `main` will redeploy the latest
-commit again, so a rollback is a temporary mitigation, not a permanent fix.
+# 2. Point the service at it and redeploy
+aws ecs update-service --cluster chatapp-cluster --service chatapp-backend \
+  --task-definition chatapp-backend:<rev> --force-new-deployment --profile default --region us-east-1
+
+# 3. Wait, then confirm health (/health, /login, /grafana/api/health on the ALB)
+aws ecs wait services-stable --cluster chatapp-cluster --services chatapp-backend --profile default --region us-east-1
+```
+
+Rollback is a temporary mitigation — the next push to `main` redeploys the latest commit.
+
+## Infrastructure & cleanup
+
+AWS is provisioned by numbered, idempotent scripts in `infra/aws-cli-scripts/` (one concern each),
+runnable individually or via the `setup-all.ps1` orchestrator. To tear everything down and stop all
+billing:
+
+```bash
+infra/aws-cli-scripts/99-cleanup.sh --dry-run   # preview what would be deleted
+infra/aws-cli-scripts/99-cleanup.sh             # requires typing the project name to confirm
+```
+
+## Secrets
+
+Copy `.env.example` to `.env` (repo root, for Docker Compose) and fill in real values. **Never
+commit `.env`.** In production, all secrets live only in AWS Secrets Manager and are injected into
+containers at start via the ECS execution role — they never appear in an image, in git, or in CI
+logs.
